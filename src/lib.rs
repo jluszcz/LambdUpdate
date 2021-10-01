@@ -59,6 +59,7 @@ pub fn set_up_logger(verbose: bool) -> Result<()> {
         .level_for("reqwest", LevelFilter::Warn)
         .level_for("html5ever", LevelFilter::Warn)
         .level_for("aws_config", LevelFilter::Warn)
+        .level_for("h2", LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply();
 
@@ -87,22 +88,26 @@ async fn clients<'a, 'b>(cache: &'a mut HashMap<String, Clients>, region: &'b st
 }
 
 pub async fn update(event: &Event) -> Result<()> {
+    debug!("Event: {:?}", event);
+
     let mut client_by_region = HashMap::new();
 
     for record in event.records.iter() {
-        debug!("Processing {:?}", record);
+        debug!("Record: {:?}", record);
 
         let (lambda_client, s3_client) = clients(&mut client_by_region, &record.region).await;
 
         let bucket = &record.s3.bucket.name;
         let key = &record.s3.object.key;
 
+        debug!("Head Object: {}:{}", bucket, key);
         let head_object_output = s3_client
             .head_object()
             .bucket(bucket)
             .key(key)
             .send()
             .await?;
+        info!("Head Object Succeeded: {}:{}", bucket, key);
 
         let object_md = head_object_output
             .metadata
@@ -114,6 +119,11 @@ pub async fn update(event: &Event) -> Result<()> {
             .ok_or_else(|| anyhow!("{}:{} metadata is missing function.names", bucket, key))?;
 
         for function_name in function_names.split(',') {
+            debug!(
+                "Update Function Code: {} <-- {}:{}",
+                function_name, bucket, key
+            );
+
             lambda_client
                 .update_function_code()
                 .function_name(function_name)
@@ -122,7 +132,10 @@ pub async fn update(event: &Event) -> Result<()> {
                 .send()
                 .await?;
 
-            info!("Updated {} with {}:{}", function_name, bucket, key);
+            info!(
+                "Update Function Code Succeeded: {} <-- {}:{}",
+                function_name, bucket, key
+            );
         }
     }
 

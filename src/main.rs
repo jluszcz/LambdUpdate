@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{App, Arg};
 use lambdupdate::{set_up_logger, update, Bucket, Event, Object, Record, S3};
+use log::debug;
 
 #[derive(Debug)]
 struct Args {
@@ -79,6 +80,8 @@ impl From<Args> for Event {
 async fn main() -> Result<()> {
     let args = parse_args();
     set_up_logger(args.verbose)?;
+    debug!("Args: {:?}", args);
+
     update(&args.into()).await?;
 
     Ok(())
