@@ -45,6 +45,7 @@ data "aws_iam_policy_document" "cw_logs" {
 }
 
 resource "aws_iam_policy" "cw_logs" {
+  name   = "lambdupdate.cw_logs"
   policy = data.aws_iam_policy_document.cw_logs.json
 }
 
@@ -61,6 +62,7 @@ data "aws_iam_policy_document" "lambda" {
 }
 
 resource "aws_iam_policy" "lambda" {
+  name   = "lambdupdate.lambda"
   policy = data.aws_iam_policy_document.lambda.json
 }
 
@@ -71,12 +73,13 @@ resource "aws_iam_role_policy_attachment" "lambda" {
 
 data "aws_iam_policy_document" "s3" {
   statement {
-    actions   = ["s3:HeadObject"]
+    actions   = ["s3:GetObject"]
     resources = ["${data.aws_s3_bucket.code_bucket.arn}/*"]
   }
 }
 
 resource "aws_iam_policy" "s3" {
+  name   = "lambdupdate.s3"
   policy = data.aws_iam_policy_document.s3.json
 }
 
@@ -107,6 +110,7 @@ resource "aws_lambda_function" "lambdupdate" {
   s3_bucket     = var.code_bucket
   s3_key        = "lambdupdate.zip"
   role          = aws_iam_role.lambdupdate.arn
+  architectures = ["arm64"]
   runtime       = "provided.al2"
   handler       = "ignored"
   publish       = "false"
