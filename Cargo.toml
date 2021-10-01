@@ -1,0 +1,28 @@
+[package]
+name = "lambdupdate"
+version = "0.1.0"
+authors = ["Jacob Luszcz"]
+edition = "2018"
+default-run = "main"
+
+[dependencies]
+anyhow = "1.0"
+aws-config = { git = "https://github.com/awslabs/aws-sdk-rust", tag = "v0.0.19-alpha" }
+chrono = "0.4"
+clap = "2.33"
+fern = "0.6"
+lambda = { git = "https://github.com/awslabs/aws-sdk-rust", tag = "v0.0.19-alpha", package = "aws-sdk-lambda" }
+lambda_runtime = "0.4"
+log = "0.4"
+s3 = { git = "https://github.com/awslabs/aws-sdk-rust", tag = "v0.0.19-alpha", package = "aws-sdk-s3" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.11", features = ["full"] }
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
+name = "lambda"
+path = "src/lambda.rs"
