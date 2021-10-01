@@ -53,6 +53,22 @@ resource "aws_iam_role_policy_attachment" "cw_logs" {
   policy_arn = aws_iam_policy.cw_logs.arn
 }
 
+data "aws_iam_policy_document" "lambda" {
+  statement {
+    actions   = ["lambda:UpdateFunctionCode"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "lambda" {
+  policy = data.aws_iam_policy_document.lambda.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda" {
+  role       = aws_iam_role.lambdupdate.name
+  policy_arn = aws_iam_policy.lambda.arn
+}
+
 data "aws_iam_policy_document" "s3" {
   statement {
     actions   = ["s3:HeadObject"]
