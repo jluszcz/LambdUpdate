@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{App, Arg};
-use lambdupdate::{set_up_logger, update, Bucket, Event, Object, Record, S3};
+use lambdupdate::{set_up_logger, update, Event, Record};
 use log::debug;
 
 #[derive(Debug)]
@@ -62,15 +62,10 @@ fn parse_args() -> Args {
 
 impl From<Args> for Event {
     fn from(args: Args) -> Self {
-        let s3 = S3 {
-            bucket: Bucket { name: args.bucket },
-            object: Object { key: args.key },
-        };
-
         Event {
             records: vec![Record {
-                s3,
                 region: args.region,
+                s3: (args.bucket.as_str(), args.key.as_str()).into(),
             }],
         }
     }
@@ -82,7 +77,7 @@ async fn main() -> Result<()> {
     set_up_logger(args.verbose)?;
     debug!("Args: {:?}", args);
 
-    update(&args.into()).await?;
+    update(args.into()).await?;
 
     Ok(())
 }

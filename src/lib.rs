@@ -1,9 +1,11 @@
 use anyhow::{anyhow, Result};
 use aws_config::ConfigLoader;
+use futures::future::try_join_all;
 use lambda::Region;
 use log::{debug, info, LevelFilter};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Display;
 
 #[derive(Debug, Deserialize)]
 pub struct Event {
@@ -24,14 +26,40 @@ pub struct S3 {
     pub object: Object,
 }
 
+impl From<(&str, &str)> for S3 {
+    fn from(bucket_and_key: (&str, &str)) -> Self {
+        let (bucket, key) = bucket_and_key;
+        Self {
+            bucket: bucket.into(),
+            object: key.into(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Bucket {
     pub name: String,
 }
 
+impl From<&str> for Bucket {
+    fn from(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Object {
     pub key: String,
+}
+
+impl From<&str> for Object {
+    fn from(key: &str) -> Self {
+        Self {
+            key: key.to_string(),
+        }
+    }
 }
 
 pub fn set_up_logger(verbose: bool) -> Result<()> {
@@ -66,78 +94,124 @@ pub fn set_up_logger(verbose: bool) -> Result<()> {
     Ok(())
 }
 
-type Clients = (lambda::Client, s3::Client);
+fn get_region(records: &[Record]) -> Result<String> {
+    let regions = records
+        .iter()
+        .map(|r| r.region.clone())
+        .collect::<HashSet<_>>();
 
-async fn clients<'a, 'b>(cache: &'a mut HashMap<String, Clients>, region: &'b str) -> &'a Clients {
-    if !cache.contains_key(region) {
-        let aws_config = ConfigLoader::default()
-            .region(Region::new(region.to_string()))
-            .load()
-            .await;
-
-        cache.insert(
-            region.to_string(),
-            (
-                lambda::Client::new(&aws_config),
-                s3::Client::new(&aws_config),
-            ),
-        );
+    if regions.len() == 1 {
+        Ok(regions
+            .into_iter()
+            .find(|_| true)
+            .expect("regions has one element"))
+    } else {
+        Err(anyhow!("Multiple regions in event: {:?}", regions))
     }
-
-    cache.get(region).unwrap()
 }
 
-pub async fn update(event: &Event) -> Result<()> {
-    debug!("Event: {:?}", event);
+async fn get_function_names_from_md(s3_client: &s3::Client, record: &Record) -> Option<String> {
+    let bucket = &record.s3.bucket.name;
+    let key = &record.s3.object.key;
 
-    let mut client_by_region = HashMap::new();
-
-    for record in event.records.iter() {
-        debug!("Record: {:?}", record);
-
-        let (lambda_client, s3_client) = clients(&mut client_by_region, &record.region).await;
-
-        let bucket = &record.s3.bucket.name;
-        let key = &record.s3.object.key;
-
-        debug!("Head Object: {}:{}", bucket, key);
-        let head_object_output = s3_client
-            .head_object()
-            .bucket(bucket)
-            .key(key)
-            .send()
-            .await?;
+    debug!("Head Object: {}:{}", bucket, key);
+    let head_object_output = s3_client.head_object().bucket(bucket).key(key).send().await;
+    if let Ok(head_object_output) = head_object_output {
         info!("Head Object Succeeded: {}:{}", bucket, key);
 
-        let object_md = head_object_output
-            .metadata
-            .ok_or_else(|| anyhow!("{}:{} has no metadata", bucket, key))?;
+        let object_md = head_object_output.metadata;
         debug!("Object Metadata: {:?}", object_md);
 
-        let function_names = object_md
-            .get("function.names")
-            .ok_or_else(|| anyhow!("{}:{} metadata is missing function.names", bucket, key))?;
+        object_md
+            .map(|m| m.get("function.names").cloned())
+            .flatten()
+    } else {
+        info!("Head Object Failed: {}:{}", bucket, key);
+        None
+    }
+}
+
+fn get_function_names<S>(function_names_from_md: Option<S>, record: &Record) -> Result<String>
+where
+    S: Into<String> + Display,
+{
+    let function_names = match function_names_from_md {
+        Some(function_names) => {
+            debug!("Function names from object metadata: {}", function_names);
+            function_names.into()
+        }
+        None => {
+            let key = &record.s3.object.key;
+            let function_name = key
+                .strip_suffix(".zip")
+                .ok_or_else(|| anyhow!("'.zip' not found in object key: {}", key))?;
+
+            debug!("Function name from object key: {}", function_name);
+            function_name.to_string()
+        }
+    };
+
+    Ok(function_names)
+}
+
+async fn update_code(
+    lambda_client: lambda::Client,
+    function_name: String,
+    bucket: String,
+    key: String,
+) -> Result<()> {
+    debug!(
+        "Update Function Code: {} <-- {}:{}",
+        function_name, bucket, key
+    );
+
+    lambda_client
+        .update_function_code()
+        .function_name(&function_name)
+        .s3_bucket(&bucket)
+        .s3_key(&key)
+        .send()
+        .await?;
+
+    info!(
+        "Update Function Code Succeeded: {} <-- {}:{}",
+        function_name, bucket, key
+    );
+
+    Ok(())
+}
+
+pub async fn update(event: Event) -> Result<()> {
+    debug!("Event: {:?}", event);
+
+    let aws_config = ConfigLoader::default()
+        .region(Region::new(get_region(&event.records)?))
+        .load()
+        .await;
+
+    let s3_client = s3::Client::new(&aws_config);
+    let lambda_client = lambda::Client::new(&aws_config);
+
+    let mut update_code_futures = Vec::with_capacity(event.records.len());
+
+    for record in event.records {
+        debug!("Record: {:?}", record);
+
+        let function_names = get_function_names_from_md(&s3_client, &record).await;
+        let function_names = get_function_names(function_names, &record)?;
 
         for function_name in function_names.split(',') {
-            debug!(
-                "Update Function Code: {} <-- {}:{}",
-                function_name, bucket, key
-            );
-
-            lambda_client
-                .update_function_code()
-                .function_name(function_name)
-                .s3_bucket(bucket)
-                .s3_key(key)
-                .send()
-                .await?;
-
-            info!(
-                "Update Function Code Succeeded: {} <-- {}:{}",
-                function_name, bucket, key
-            );
+            update_code_futures.push(tokio::spawn(update_code(
+                lambda_client.clone(),
+                function_name.to_string(),
+                record.s3.bucket.name.clone(),
+                record.s3.object.key.clone(),
+            )));
         }
     }
+
+    debug!("{} function(s) to update", update_code_futures.len());
+    try_join_all(update_code_futures).await?;
 
     Ok(())
 }
@@ -187,6 +261,15 @@ mod test {
       }
     "#;
 
+    impl Record {
+        fn new(region: &str, bucket: &str, key: &str) -> Self {
+            Self {
+                region: region.to_string(),
+                s3: (bucket, key).into(),
+            }
+        }
+    }
+
     #[test]
     fn test_deserialize() -> Result<()> {
         let event: Event = serde_json::from_str(TEST_EVENT)?;
@@ -199,5 +282,62 @@ mod test {
         assert_eq!("HappyFace.jpg", record.s3.object.key);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_get_region() -> Result<()> {
+        let mut records = vec![Record::new("us-east-1", "foo", "bar")];
+
+        assert_eq!("us-east-1", get_region(&records)?);
+
+        records.push(Record::new("us-east-1", "baz", "quux"));
+
+        assert_eq!("us-east-1", get_region(&records)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_region_multiple() {
+        let records = vec![
+            Record::new("us-east-1", "foo", "bar"),
+            Record::new("us-east-2", "baz", "quux"),
+        ];
+
+        let res = get_region(&records);
+        assert!(res.is_err());
+        if let Err(e) = res {
+            assert!(e.to_string().contains("Multiple regions"));
+        }
+    }
+
+    #[test]
+    fn test_get_function_names_from_md() -> Result<()> {
+        let function_names =
+            get_function_names(Some("foo,bar"), &Record::new("us-east-1", "foo", "bar"))?;
+
+        assert_eq!("foo,bar", function_names);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_function_names_from_key() -> Result<()> {
+        let function_names =
+            get_function_names(None::<&str>, &Record::new("us-east-1", "foo", "bar.zip"))?;
+
+        assert_eq!("bar", function_names);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_function_names_from_unzipped_key() {
+        let res = get_function_names(None::<&str>, &Record::new("us-east-1", "foo", "bar"));
+
+        assert!(res.is_err());
+        if let Err(e) = res {
+            assert!(e.to_string().contains("'.zip' not found"));
+        }
     }
 }

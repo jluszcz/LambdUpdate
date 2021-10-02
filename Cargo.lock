@@ -664,6 +664,7 @@ dependencies = [
  "chrono",
  "clap",
  "fern",
+ "futures",
  "lambda_runtime",
  "log",
  "serde",

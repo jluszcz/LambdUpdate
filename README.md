@@ -17,5 +17,14 @@ export TF_VAR_code_bucket="my-code-bucket"
 
 - Run Terraform apply: `terraform apply`
 
-- Upload updated code to S3, with `function.names` metadata set to a comma-separated list of one or
-  more function names to update with the uploaded code.
+- Upload updated code to your S3 code bucket.
+    - If you have set `function.names` to a comma-separated list of one or more function names,
+      then LambdUpdate will update those functions.
+    - If you do not set `function.names`, LambdUpdate will take the function name from the object's
+      key, stripping the `.zip` extension.
+
+```
+aws s3 cp --metadata 'function.names="lambdupdate-alt-1,lambdupdate-alt-2"' lambdupdate.zip s3://my-code-bucket/
+# OR
+aws s3 cp --metadata lambdupdate.zip s3://my-code-bucket/
+```
