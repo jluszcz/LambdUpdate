@@ -45,7 +45,7 @@ data "aws_iam_policy_document" "cw_logs" {
 }
 
 resource "aws_iam_policy" "cw_logs" {
-  name   = "lambdupdate.cw_logs"
+  name   = "lambdupdate.cw_logs.${var.aws_region}"
   policy = data.aws_iam_policy_document.cw_logs.json
 }
 
@@ -79,7 +79,7 @@ data "aws_iam_policy_document" "s3" {
 }
 
 resource "aws_iam_policy" "s3" {
-  name   = "lambdupdate.s3"
+  name   = "lambdupdate.s3.${var.code_bucket}"
   policy = data.aws_iam_policy_document.s3.json
 }
 
