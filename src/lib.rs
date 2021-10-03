@@ -88,15 +88,13 @@ pub fn set_up_logger(verbose: bool) -> Result<()> {
 }
 
 fn get_region(records: &[Record]) -> Result<String> {
-    let regions = records
-        .iter()
-        .map(|r| r.region.clone())
-        .collect::<HashSet<_>>();
+    let regions = records.iter().map(|r| &r.region).collect::<HashSet<_>>();
 
     if regions.len() == 1 {
         Ok(regions
             .into_iter()
             .find(|_| true)
+            .cloned()
             .expect("regions has one element"))
     } else {
         Err(anyhow!("Multiple regions in event: {:?}", regions))
