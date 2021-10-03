@@ -3,9 +3,12 @@ use aws_config::ConfigLoader;
 use futures::future::try_join_all;
 use lambda::Region;
 use log::{debug, info, LevelFilter};
+use s3::output::HeadObjectOutput;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Display;
+
+const FUNCTION_NAME_MD_KEY: &str = "function.names";
 
 #[derive(Debug, Deserialize)]
 pub struct Event {
@@ -107,6 +110,14 @@ async fn get_function_names_from_md(s3_client: &s3::Client, record: &Record) -> 
 
     debug!("Head Object: {}:{}", bucket, key);
     let head_object_output = s3_client.head_object().bucket(bucket).key(key).send().await;
+    get_function_names_from_head_object_output(head_object_output, bucket, key)
+}
+
+fn get_function_names_from_head_object_output<E>(
+    head_object_output: Result<HeadObjectOutput, E>,
+    bucket: &str,
+    key: &str,
+) -> Option<String> {
     if let Ok(head_object_output) = head_object_output {
         info!("Head Object Succeeded: {}:{}", bucket, key);
 
@@ -114,7 +125,7 @@ async fn get_function_names_from_md(s3_client: &s3::Client, record: &Record) -> 
         debug!("Object Metadata: {:?}", object_md);
 
         object_md
-            .map(|m| m.get("function.names").cloned())
+            .map(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
             .flatten()
     } else {
         info!("Head Object Failed: {}:{}", bucket, key);
@@ -209,6 +220,10 @@ pub async fn update(event: Event) -> Result<()> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
+    use anyhow::Error;
+
     use super::*;
 
     const TEST_EVENT: &str = r#"
@@ -330,5 +345,52 @@ mod test {
         if let Err(e) = res {
             assert!(e.to_string().contains("'.zip' not found"));
         }
+    }
+
+    #[test]
+    fn test_get_function_names_from_head_object_output() {
+        let fn_names = "foo,bar";
+
+        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder()
+            .metadata(FUNCTION_NAME_MD_KEY, fn_names)
+            .build());
+
+        let fn_names_from_output =
+            get_function_names_from_head_object_output(output, "bucket", "key");
+
+        assert!(fn_names_from_output.is_some());
+        assert_eq!(fn_names, fn_names_from_output.unwrap());
+    }
+
+    #[test]
+    fn test_get_function_names_from_head_object_output_err() {
+        let output: Result<HeadObjectOutput, Error> = Err(anyhow!("Error!"));
+
+        let fn_names_from_output =
+            get_function_names_from_head_object_output(output, "bucket", "key");
+
+        assert!(fn_names_from_output.is_none());
+    }
+
+    #[test]
+    fn test_get_function_names_from_head_object_output_no_metadata() {
+        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder().build());
+
+        let fn_names_from_output =
+            get_function_names_from_head_object_output(output, "bucket", "key");
+
+        assert!(fn_names_from_output.is_none());
+    }
+
+    #[test]
+    fn test_get_function_names_from_head_object_output_no_function_names() {
+        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder()
+            .set_metadata(Some(HashMap::new()))
+            .build());
+
+        let fn_names_from_output =
+            get_function_names_from_head_object_output(output, "bucket", "key");
+
+        assert!(fn_names_from_output.is_none());
     }
 }
