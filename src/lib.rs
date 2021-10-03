@@ -221,9 +221,7 @@ pub async fn update(event: Event) -> Result<()> {
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
-
     use anyhow::Error;
-
     use super::*;
 
     const TEST_EVENT: &str = r#"
