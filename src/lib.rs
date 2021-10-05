@@ -100,7 +100,7 @@ fn get_region(records: &[Record]) -> Result<String> {
             .cloned()
             .expect("regions has one element"))
     } else {
-        Err(anyhow!("Multiple regions in event: {:?}", regions))
+        Err(anyhow!("Invalid region count: {:?}", regions))
     }
 }
 
@@ -220,9 +220,9 @@ pub async fn update(event: Event) -> Result<()> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use anyhow::Error;
     use super::*;
+    use anyhow::Error;
+    use std::collections::HashMap;
 
     const TEST_EVENT: &str = r#"
     {
@@ -302,6 +302,17 @@ mod test {
     }
 
     #[test]
+    fn test_get_region_none() {
+        let records = Vec::new();
+
+        let res = get_region(&records);
+        assert!(res.is_err());
+        if let Err(e) = res {
+            assert!(e.to_string().contains("Invalid region count"));
+        }
+    }
+
+    #[test]
     fn test_get_region_multiple() {
         let records = vec![
             Record::new("us-east-1", "foo", "bar"),
@@ -311,7 +322,7 @@ mod test {
         let res = get_region(&records);
         assert!(res.is_err());
         if let Err(e) = res {
-            assert!(e.to_string().contains("Multiple regions"));
+            assert!(e.to_string().contains("Invalid region count"));
         }
     }
 
@@ -357,7 +368,9 @@ mod test {
             get_function_names_from_head_object_output(output, "bucket", "key");
 
         assert!(fn_names_from_output.is_some());
-        assert_eq!(fn_names, fn_names_from_output.unwrap());
+        if let Some(fn_names_from_output) = fn_names_from_output {
+            assert_eq!(fn_names, fn_names_from_output);
+        }
     }
 
     #[test]
