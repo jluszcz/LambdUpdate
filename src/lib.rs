@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
 use aws_config::ConfigLoader;
+use aws_sdk_lambda::Region;
+use aws_sdk_s3::output::HeadObjectOutput;
 use futures::future::try_join_all;
-use lambda::Region;
 use log::{debug, info, LevelFilter};
-use s3::output::HeadObjectOutput;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -104,7 +104,10 @@ fn get_region(records: &[Record]) -> Result<String> {
     }
 }
 
-async fn get_function_names_from_md(s3_client: &s3::Client, record: &Record) -> Option<String> {
+async fn get_function_names_from_md(
+    s3_client: &aws_sdk_s3::Client,
+    record: &Record,
+) -> Option<String> {
     let bucket = &record.s3.bucket.name;
     let key = &record.s3.object.key;
 
@@ -157,7 +160,7 @@ where
 }
 
 async fn update_code(
-    lambda_client: lambda::Client,
+    lambda_client: aws_sdk_lambda::Client,
     function_name: String,
     bucket: String,
     key: String,
@@ -191,8 +194,8 @@ pub async fn update(event: Event) -> Result<()> {
         .load()
         .await;
 
-    let s3_client = s3::Client::new(&aws_config);
-    let lambda_client = lambda::Client::new(&aws_config);
+    let s3_client = aws_sdk_s3::Client::new(&aws_config);
+    let lambda_client = aws_sdk_lambda::Client::new(&aws_config);
 
     let mut update_code_futures = Vec::with_capacity(event.records.len());
 
