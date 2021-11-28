@@ -5,6 +5,7 @@ use aws_sdk_s3::output::HeadObjectOutput;
 use futures::future::try_join_all;
 use log::{debug, info, LevelFilter};
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt::Display;
 
@@ -65,7 +66,10 @@ impl From<&str> for Object {
     }
 }
 
-pub fn set_up_logger(verbose: bool) -> Result<()> {
+pub fn set_up_logger<T>(calling_module: T, verbose: bool) -> Result<()>
+where
+    T: Into<Cow<'static, str>>,
+{
     let level = if verbose {
         LevelFilter::Debug
     } else {
@@ -83,7 +87,9 @@ pub fn set_up_logger(verbose: bool) -> Result<()> {
             ))
         })
         .level(LevelFilter::Warn)
+        .level_for("aws_config::profile", LevelFilter::Error)
         .level_for("lambdupdate", level)
+        .level_for(calling_module, level)
         .chain(std::io::stdout())
         .apply();
 

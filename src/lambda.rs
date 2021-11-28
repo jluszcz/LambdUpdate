@@ -14,7 +14,7 @@ async fn main() -> Result<(), LambdaError> {
 }
 
 async fn function(event: Value, _: Context) -> Result<Value, LambdaError> {
-    set_up_logger(false)?;
+    set_up_logger(module_path!(), false)?;
     debug!("Processing event: {:?}", event);
 
     update(serde_json::from_value(event)?).await?;

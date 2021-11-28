@@ -74,7 +74,7 @@ impl From<Args> for Event {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = parse_args();
-    set_up_logger(args.verbose)?;
+    set_up_logger(module_path!(), args.verbose)?;
     debug!("Args: {:?}", args);
 
     update(args.into()).await?;
