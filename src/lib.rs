@@ -87,7 +87,6 @@ where
             ))
         })
         .level(LevelFilter::Warn)
-        .level_for("aws_config::profile", LevelFilter::Error)
         .level_for("lambdupdate", level)
         .level_for(calling_module, level)
         .chain(std::io::stdout())
