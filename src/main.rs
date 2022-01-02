@@ -16,30 +16,30 @@ fn parse_args() -> Args {
         .version("0.1")
         .author("Jacob Luszcz")
         .arg(
-            Arg::with_name("verbose")
-                .short("v")
+            Arg::new("verbose")
+                .short('v')
                 .long("verbose")
                 .help("Verbose mode. Outputs DEBUG and higher log messages."),
         )
         .arg(
-            Arg::with_name("region")
-                .short("r")
+            Arg::new("region")
+                .short('r')
                 .long("region")
                 .required(true)
                 .takes_value(true)
                 .help("AWS region."),
         )
         .arg(
-            Arg::with_name("bucket")
-                .short("b")
+            Arg::new("bucket")
+                .short('b')
                 .long("bucket")
                 .required(true)
                 .takes_value(true)
                 .help("S3 bucket name."),
         )
         .arg(
-            Arg::with_name("key")
-                .short("k")
+            Arg::new("key")
+                .short('k')
                 .long("key")
                 .required(true)
                 .takes_value(true)
