@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use lambdupdate::{set_up_logger, update, Event, Record};
 use log::debug;
 
@@ -12,7 +12,7 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let matches = App::new("LambdUpdate")
+    let matches = Command::new("LambdUpdate")
         .version("0.1")
         .author("Jacob Luszcz")
         .arg(
