@@ -132,9 +132,7 @@ fn get_function_names_from_head_object_output<E>(
         let object_md = head_object_output.metadata;
         debug!("Object Metadata: {:?}", object_md);
 
-        object_md
-            .map(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
-            .flatten()
+        object_md.and_then(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
     } else {
         info!("Head Object Failed: {}:{}", bucket, key);
         None
