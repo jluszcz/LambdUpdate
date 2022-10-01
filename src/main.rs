@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::{Arg, ArgAction, Command};
 use lambdupdate::{set_up_logger, update, Event, Record};
 use log::debug;
 
@@ -19,6 +19,7 @@ fn parse_args() -> Args {
             Arg::new("verbose")
                 .short('v')
                 .long("verbose")
+                .action(ArgAction::SetTrue)
                 .help("Verbose mode. Outputs DEBUG and higher log messages."),
         )
         .arg(
@@ -26,7 +27,6 @@ fn parse_args() -> Args {
                 .short('r')
                 .long("region")
                 .required(true)
-                .takes_value(true)
                 .help("AWS region."),
         )
         .arg(
@@ -34,7 +34,6 @@ fn parse_args() -> Args {
                 .short('b')
                 .long("bucket")
                 .required(true)
-                .takes_value(true)
                 .help("S3 bucket name."),
         )
         .arg(
@@ -42,15 +41,23 @@ fn parse_args() -> Args {
                 .short('k')
                 .long("key")
                 .required(true)
-                .takes_value(true)
                 .help("S3 key name."),
         )
         .get_matches();
 
-    let verbose = matches.is_present("verbose");
-    let region = matches.value_of("region").map(|l| l.into()).unwrap();
-    let bucket = matches.value_of("bucket").map(|l| l.into()).unwrap();
-    let key = matches.value_of("key").map(|l| l.into()).unwrap();
+    let verbose = matches.get_flag("verbose");
+
+    let region = matches
+        .get_one::<String>("region")
+        .map(|l| l.into())
+        .unwrap();
+
+    let bucket = matches
+        .get_one::<String>("bucket")
+        .map(|l| l.into())
+        .unwrap();
+
+    let key = matches.get_one::<String>("key").map(|l| l.into()).unwrap();
 
     Args {
         verbose,
