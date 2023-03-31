@@ -8,7 +8,7 @@ default-run = "main"
 [dependencies]
 anyhow = "1.0"
 aws-config = "0.54"
-aws-sdk-lambda = "0.24"
+aws-sdk-lambda = "0.25"
 aws-sdk-s3 = "0.24"
 chrono = "0.4"
 clap = "4.1"
