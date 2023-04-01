@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use aws_config::ConfigLoader;
-use aws_sdk_lambda::Region;
-use aws_sdk_s3::output::HeadObjectOutput;
+use aws_sdk_lambda::config::Region;
+use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 use futures::future::try_join_all;
 use log::{debug, info, LevelFilter};
 use serde::Deserialize;
