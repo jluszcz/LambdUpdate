@@ -1,6 +1,6 @@
 # LambdUpdate
 
-[![Build Status](https://app.travis-ci.com/jluszcz/LambdUpdate.svg?branch=main)](https://app.travis-ci.com/jluszcz/LambdUpdate)
+![Status Badge](https://github.com/jluszcz/LambdUpdate/actions/workflows/build-and-test.yml/badge.svg)
 
 LambdUpdate is a [Terraform](https://www.terraform.io) template and Rust Lambda which updates AWS
 [Lambda](https://aws.amazon.com/lambda/) functions when S3 code is uploaded to a code bucket.
@@ -9,7 +9,7 @@ LambdUpdate is a [Terraform](https://www.terraform.io) template and Rust Lambda 
 
 - Set environment variables for Terraform
 
-```
+``` bash
 export TF_VAR_aws_region="us-east-1"
 export TF_VAR_aws_acct_id="123412341234"
 export TF_VAR_code_bucket="my-code-bucket"
@@ -23,7 +23,7 @@ export TF_VAR_code_bucket="my-code-bucket"
     - If you do not include `function.names` object metadata, LambdUpdate will take the function name from the object's key,
       stripping the `.zip` extension.
 
-```
+``` bash
 aws s3 cp --metadata 'function.names="lambdupdate-alt-1,lambdupdate-alt-2"' lambdupdate.zip s3://my-code-bucket/
 # OR
 aws s3 cp --metadata lambdupdate.zip s3://my-code-bucket/
