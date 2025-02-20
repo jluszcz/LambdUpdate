@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use aws_config::ConfigLoader;
 use aws_sdk_lambda::config::Region;
 use aws_sdk_s3::operation::head_object::HeadObjectOutput;
 use futures::future::try_join_all;
-use log::{debug, info, LevelFilter};
+use log::{LevelFilter, debug, info};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::collections::HashSet;

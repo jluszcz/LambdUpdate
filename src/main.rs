@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, ArgAction, Command};
-use lambdupdate::{set_up_logger, update, Event, Record};
+use lambdupdate::{Event, Record, set_up_logger, update};
 use log::debug;
 
 #[derive(Debug)]
