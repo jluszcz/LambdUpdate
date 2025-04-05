@@ -7,9 +7,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-aws-config = "1.*"
-aws-sdk-lambda = "1.*"
-aws-sdk-s3 = "1.*"
+aws-config = { version = "1.*", features = ["behavior-version-latest"] }
+aws-sdk-lambda = { version = "1.*", features = ["behavior-version-latest"] }
+aws-sdk-s3 = { version = "1.*", features = ["behavior-version-latest"] }
 chrono = "0.4"
 clap = "4.5"
 fern = "0.7"
