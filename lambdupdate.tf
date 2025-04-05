@@ -112,7 +112,7 @@ resource "aws_lambda_function" "lambdupdate" {
   s3_key        = "lambdupdate.zip"
   role          = aws_iam_role.lambdupdate.arn
   architectures = ["arm64"]
-  runtime       = "provided.al2"
+  runtime       = "provided.al2023"
   handler       = "ignored"
   publish       = "false"
   description   = "Update Lambdas from code in ${var.code_bucket}"
