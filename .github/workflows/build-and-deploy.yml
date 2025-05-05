@@ -45,9 +45,6 @@ jobs:
       id-token: write
       contents: read
 
-    env:
-      CONFIGURE_AWS_CREDS_HASH: ececac1a45f3b08a01d2dd070d28d111c5fe6722
-
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +63,7 @@ jobs:
           zip -j lambdupdate.zip bootstrap
 
       - name: Configure AWS Credentials - us-east-1
-        uses: aws-actions/configure-aws-credentials@${{ env.CONFIGURE_AWS_CREDS_HASH }}
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambdupdate.github.us-east-1
           role-session-name: github-deploy
@@ -75,7 +72,7 @@ jobs:
           only-profile: true
 
       - name: Configure AWS Credentials - us-east-2
-        uses: aws-actions/configure-aws-credentials@${{ env.CONFIGURE_AWS_CREDS_HASH }}
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambdupdate.github.us-east-2
           role-session-name: github-deploy
