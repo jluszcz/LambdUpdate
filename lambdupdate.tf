@@ -33,7 +33,7 @@ data "aws_iam_policy_document" "lambda_assume_role" {
 }
 
 resource "aws_iam_role" "lambdupdate" {
-  name               = "lambdupdate"
+  name               = "lambdupdate.lambda.${var.aws_region}"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
 }
 
@@ -62,7 +62,7 @@ data "aws_iam_policy_document" "lambda" {
 }
 
 resource "aws_iam_policy" "lambda" {
-  name   = "lambdupdate.lambda"
+  name   = "lambdupdate.lambda.${var.aws_region}"
   policy = data.aws_iam_policy_document.lambda.json
 }
 
@@ -111,11 +111,61 @@ resource "aws_lambda_function" "lambdupdate" {
   s3_bucket     = var.code_bucket
   s3_key        = "lambdupdate.zip"
   role          = aws_iam_role.lambdupdate.arn
-  architectures = ["arm64"]
+  architectures = ["x86_64"]
   runtime       = "provided.al2023"
   handler       = "ignored"
   publish       = "false"
   description   = "Update Lambdas from code in ${var.code_bucket}"
   timeout       = 5
   memory_size   = 128
+}
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = ["sts.amazonaws.com"]
+
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+data "aws_iam_policy_document" "github" {
+  statement {
+    actions = ["s3:PutObject"]
+    resources = ["${data.aws_s3_bucket.code_bucket.arn}/lambdupdate.zip"]
+  }
+}
+
+resource "aws_iam_policy" "github" {
+  name   = "lambdupdate.github.${var.aws_region}"
+  policy = data.aws_iam_policy_document.github.json
+}
+
+resource "aws_iam_role" "github" {
+  name = "lambdupdate.github.${var.aws_region}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.github.arn
+        },
+        Action = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" : "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" : "repo:jluszcz/LambdUpdate:*"
+          },
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github" {
+  role       = aws_iam_role.github.name
+  policy_arn = aws_iam_policy.github.arn
 }
