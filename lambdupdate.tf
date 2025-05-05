@@ -93,13 +93,13 @@ resource "aws_s3_bucket_notification" "notification" {
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.lambdupdate.arn
-    events              = ["s3:ObjectCreated:Put"]
+    events              = ["s3:ObjectCreated:*"]
     filter_suffix       = ".zip"
   }
 }
 
 resource "aws_lambda_permission" "allow_bucket" {
-  statement_id  = "lambdupdate-AllowExecutionFromS3Bucket"
+  statement_id  = "lambdupdate-allow-exec-from-s3"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.lambdupdate.arn
   principal     = "s3.amazonaws.com"
