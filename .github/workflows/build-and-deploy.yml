@@ -48,8 +48,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update Rust
+      - name: Update and Configure Rust
         run: |
+          sudo apt-get install -y musl-tools
           rustup update
           rustup target add x86_64-unknown-linux-musl
 
