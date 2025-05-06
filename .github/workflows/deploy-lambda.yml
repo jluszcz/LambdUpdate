@@ -11,6 +11,9 @@ on:
       bucket-name:
         required: true
 
+      aws-account:
+        required: true
+
 env:
   PROJECT: lambdupdate
 
@@ -31,9 +34,9 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}.github.${{ inputs.aws-region }}
+          role-to-assume: arn:aws:iam::${{ secrets.aws-account }}:role/${{ env.PROJECT }}.github.${{ inputs.aws-region }}
           role-session-name: github-deploy
           aws-region: ${{ inputs.aws-region }}
 
       - name: Deploy Lambda
-        run: aws --region ${{ inputs.aws-region }} s3 cp ${{ env.PROJECT }}.zip s3://${{ inputs.bucket-name }}/
+        run: aws --region ${{ inputs.aws-region }} s3 cp ${{ env.PROJECT }}.zip s3://${{ secrets.bucket-name }}/
