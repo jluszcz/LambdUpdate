@@ -1741,6 +1741,7 @@ dependencies = [
  "futures",
  "lambda_runtime",
  "log",
+ "rustc_version",
  "serde",
  "serde_json",
  "tokio",
