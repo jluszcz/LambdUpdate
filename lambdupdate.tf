@@ -79,7 +79,7 @@ data "aws_iam_policy_document" "s3" {
 }
 
 resource "aws_iam_policy" "s3" {
-  name   = "lambdupdate.s3.${var.code_bucket}"
+  name   = "lambdupdate.s3.${data.aws_s3_bucket.code_bucket.bucket}"
   policy = data.aws_iam_policy_document.s3.json
 }
 
@@ -108,14 +108,14 @@ resource "aws_lambda_permission" "allow_bucket" {
 
 resource "aws_lambda_function" "lambdupdate" {
   function_name = "lambdupdate"
-  s3_bucket     = var.code_bucket
+  s3_bucket     = "${data.aws_s3_bucket.code_bucket.bucket}"
   s3_key        = "lambdupdate.zip"
   role          = aws_iam_role.lambdupdate.arn
   architectures = ["arm64"]
   runtime       = "provided.al2023"
   handler       = "ignored"
   publish       = "false"
-  description   = "Update Lambdas from code in ${var.code_bucket}"
+  description   = "Update Lambdas from code in ${data.aws_s3_bucket.code_bucket.bucket}"
   timeout       = 5
   memory_size   = 128
 }
