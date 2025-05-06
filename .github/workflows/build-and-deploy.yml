@@ -59,7 +59,7 @@ jobs:
   deploy-us-east-1:
     needs: build-and-package
 
-    uses: ./.github/workflows/deploy-lambda.yml@main
+    uses: ./.github/workflows/deploy-lambda.yml
     with:
       aws-region: us-east-1
     secrets:
@@ -68,7 +68,7 @@ jobs:
   deploy-us-east-2:
     needs: build-and-package
 
-    uses: ./.github/workflows/deploy-lambda.yml@main
+    uses: ./.github/workflows/deploy-lambda.yml
     with:
       aws-region: us-east-2
     secrets:
