@@ -25,7 +25,7 @@ resource "aws_cloudwatch_log_group" "lambdupdate" {
 data "aws_iam_policy_document" "lambda_assume_role" {
   statement {
     principals {
-      type        = "Service"
+      type = "Service"
       identifiers = ["lambda.amazonaws.com"]
     }
     actions = ["sts:AssumeRole"]
@@ -39,7 +39,7 @@ resource "aws_iam_role" "lambdupdate" {
 
 data "aws_iam_policy_document" "cw_logs" {
   statement {
-    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:Describe*"]
+    actions = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:Describe*"]
     resources = ["arn:aws:logs:${var.aws_region}:${var.aws_acct_id}:*"]
   }
 }
@@ -54,9 +54,31 @@ resource "aws_iam_role_policy_attachment" "cw_logs" {
   policy_arn = aws_iam_policy.cw_logs.arn
 }
 
+data "aws_iam_policy_document" "cw_metrics" {
+  statement {
+    actions = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values = ["lambdupdate"]
+    }
+  }
+}
+
+resource "aws_iam_policy" "cw_metrics" {
+  name   = "lambdupdate.cw.${var.aws_region}"
+  policy = data.aws_iam_policy_document.cw_metrics.json
+}
+
+resource "aws_iam_role_policy_attachment" "cw_metrics" {
+  role       = aws_iam_role.lambdupdate.name
+  policy_arn = aws_iam_policy.cw_metrics.arn
+}
+
 data "aws_iam_policy_document" "lambda" {
   statement {
-    actions   = ["lambda:UpdateFunctionCode"]
+    actions = ["lambda:UpdateFunctionCode"]
     resources = ["*"]
   }
 }
@@ -73,7 +95,7 @@ resource "aws_iam_role_policy_attachment" "lambda" {
 
 data "aws_iam_policy_document" "s3" {
   statement {
-    actions   = ["s3:GetObject"]
+    actions = ["s3:GetObject"]
     resources = ["${data.aws_s3_bucket.code_bucket.arn}/*"]
   }
 }
@@ -93,7 +115,7 @@ resource "aws_s3_bucket_notification" "notification" {
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.lambdupdate.arn
-    events              = ["s3:ObjectCreated:*"]
+    events = ["s3:ObjectCreated:*"]
     filter_suffix       = ".zip"
   }
 }
