@@ -1,7 +1,6 @@
 use lambda_runtime::{LambdaEvent, service_fn};
 use lambda_utils::set_up_logger;
 use lambdupdate::{APP_NAME, update};
-use log::debug;
 use serde_json::{Value, json};
 use std::error::Error;
 
@@ -16,7 +15,6 @@ async fn main() -> Result<(), LambdaError> {
 
 async fn function(event: LambdaEvent<Value>) -> Result<Value, LambdaError> {
     set_up_logger(APP_NAME, module_path!(), false)?;
-    debug!("Processing event: {event:?}");
 
     update(serde_json::from_value(event.payload)?).await?;
 
