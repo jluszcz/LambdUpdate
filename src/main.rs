@@ -1,6 +1,8 @@
 use anyhow::Result;
+use aws_lambda_events::s3::{S3Bucket, S3Entity, S3Event, S3EventRecord, S3Object};
 use clap::{Arg, ArgAction, Command};
-use lambdupdate::{Event, Record, set_up_logger, update};
+use lambda_utils::set_up_logger;
+use lambdupdate::{APP_NAME, update};
 use log::debug;
 
 #[derive(Debug)]
@@ -67,12 +69,23 @@ fn parse_args() -> Args {
     }
 }
 
-impl From<Args> for Event {
+impl From<Args> for S3Event {
     fn from(args: Args) -> Self {
-        Event {
-            records: vec![Record {
-                region: args.region,
-                s3: (args.bucket.as_str(), args.key.as_str()).into(),
+        S3Event {
+            records: vec![S3EventRecord {
+                aws_region: Some(args.region),
+                s3: S3Entity {
+                    bucket: S3Bucket {
+                        name: Some(args.bucket),
+                        ..Default::default()
+                    },
+                    object: S3Object {
+                        key: Some(args.key),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
             }],
         }
     }
@@ -81,8 +94,8 @@ impl From<Args> for Event {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = parse_args();
-    set_up_logger(module_path!(), args.verbose)?;
-    debug!("Args: {:?}", args);
+    set_up_logger(APP_NAME, module_path!(), args.verbose)?;
+    debug!("Args: {args:?}");
 
     update(args.into()).await?;
 
