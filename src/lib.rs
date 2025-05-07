@@ -56,10 +56,7 @@ fn get_function_names_from_head_object_output<E>(
     }
 }
 
-fn get_function_names<S>(
-    function_names_from_md: Option<S>,
-    record: &S3EventRecord,
-) -> Result<String>
+fn get_function_names<S>(function_names_from_md: Option<S>, key: &str) -> Result<String>
 where
     S: Into<String> + Display,
 {
@@ -69,13 +66,6 @@ where
             function_names.into()
         }
         None => {
-            let key = record
-                .s3
-                .object
-                .key
-                .as_ref()
-                .ok_or_else(|| anyhow!("No key found in {record:?}"))?;
-
             let function_name = key
                 .strip_suffix(".zip")
                 .ok_or_else(|| anyhow!("'.zip' not found in object key: {key}"))?;
@@ -140,7 +130,7 @@ pub async fn update(event: S3Event) -> Result<()> {
             .ok_or_else(|| anyhow!("Key not found in {record:?}"))?;
 
         let function_names = get_function_names_from_md(&s3_client, bucket, key).await;
-        let function_names = get_function_names(function_names, &record)?;
+        let function_names = get_function_names(function_names, key)?;
 
         for function_name in function_names.split(',') {
             update_code_futures.push(tokio::spawn(update_code(
@@ -248,8 +238,7 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_md() -> Result<()> {
-        let function_names =
-            get_function_names(Some("foo,bar"), &test_record("us-east-1", "foo", "bar"))?;
+        let function_names = get_function_names(Some("foo,bar"), "bar")?;
 
         assert_eq!("foo,bar", function_names);
 
@@ -258,8 +247,7 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_key() -> Result<()> {
-        let function_names =
-            get_function_names(None::<&str>, &test_record("us-east-1", "foo", "bar.zip"))?;
+        let function_names = get_function_names(None::<&str>, "bar.zip")?;
 
         assert_eq!("bar", function_names);
 
@@ -268,7 +256,7 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_unzipped_key() {
-        let res = get_function_names(None::<&str>, &test_record("us-east-1", "foo", "bar"));
+        let res = get_function_names(None::<&str>, "bar");
 
         assert!(res.is_err());
         if let Err(e) = res {
