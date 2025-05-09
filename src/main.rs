@@ -1,7 +1,7 @@
 use anyhow::Result;
 use aws_lambda_events::s3::{S3Bucket, S3Entity, S3Event, S3EventRecord, S3Object};
 use clap::{Arg, ArgAction, Command};
-use lambda_utils::set_up_logger;
+use jluszcz_rust_utils::set_up_logger;
 use lambdupdate::{APP_NAME, update};
 use log::debug;
 
