@@ -51,15 +51,18 @@ fn parse_args() -> Args {
 
     let region = matches
         .get_one::<String>("region")
-        .map(|l| l.into())
-        .unwrap();
+        .cloned()
+        .expect("region argument is required");
 
     let bucket = matches
         .get_one::<String>("bucket")
-        .map(|l| l.into())
-        .unwrap();
+        .cloned()
+        .expect("bucket argument is required");
 
-    let key = matches.get_one::<String>("key").map(|l| l.into()).unwrap();
+    let key = matches
+        .get_one::<String>("key")
+        .cloned()
+        .expect("key argument is required");
 
     Args {
         verbose,

@@ -1,3 +1,8 @@
+//! LambdUpdate library for automatically updating AWS Lambda functions from S3 events.
+//!
+//! This library processes S3 events triggered when ZIP files are uploaded to a code bucket,
+//! extracts function names from object metadata or keys, and updates the corresponding Lambda functions.
+
 use anyhow::{Result, anyhow};
 use aws_config::ConfigLoader;
 use aws_lambda_events::s3::{S3Event, S3EventRecord};
@@ -12,17 +17,31 @@ pub const APP_NAME: &str = "lambdupdate";
 
 const FUNCTION_NAME_MD_KEY: &str = "function.names";
 
+/// Extracts the AWS region from S3 event records.
+///
+/// All records must be from the same region. Returns an error if no region is found
+/// or if records contain multiple different regions.
+///
+/// # Arguments
+/// * `records` - Slice of S3 event records to extract region from
+///
+/// # Returns
+/// * `Result<String>` - The AWS region if exactly one unique region is found
+///
+/// # Errors
+/// * Returns error if records contain 0 or multiple different regions
 fn get_region(records: &[S3EventRecord]) -> Result<String> {
     let regions = records
         .iter()
-        .filter_map(|r| r.aws_region.clone())
+        .filter_map(|r| r.aws_region.as_deref())
         .collect::<HashSet<_>>();
 
     if regions.len() == 1 {
         Ok(regions
             .into_iter()
-            .find(|_| true)
-            .expect("regions has one element"))
+            .next()
+            .expect("regions has one element")
+            .to_string())
     } else {
         Err(anyhow!("Invalid region count: {:?}", regions))
     }
@@ -51,11 +70,25 @@ fn get_function_names_from_head_object_output<E>(
 
         object_md.and_then(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
     } else {
-        info!("Head Object Failed:{bucket}:{key}");
+        info!("Head Object Failed for {bucket}:{key} - will use object key for function name");
         None
     }
 }
 
+/// Determines function names from object metadata or object key.
+///
+/// First tries to get function names from object metadata using the key "function.names".
+/// If not found, extracts the function name from the object key by stripping the ".zip" suffix.
+///
+/// # Arguments
+/// * `function_names_from_md` - Optional function names from object metadata
+/// * `key` - S3 object key to extract function name from if metadata is not available
+///
+/// # Returns
+/// * `Result<String>` - Comma-separated function names or single function name
+///
+/// # Errors
+/// * Returns error if no metadata is provided and the key doesn't end with ".zip"
 fn get_function_names<S>(function_names_from_md: Option<S>, key: &str) -> Result<String>
 where
     S: Into<String> + Display,
@@ -76,6 +109,38 @@ where
     };
 
     Ok(function_names)
+}
+
+/// Processes a comma-separated list of function names, trimming whitespace and filtering empty names.
+///
+/// # Arguments
+/// * `function_names` - Comma-separated string of function names
+///
+/// # Returns
+/// * `Result<Vec<String>>` - Vector of trimmed, non-empty function names
+///
+/// # Errors
+/// * Returns error if no valid function names are found after processing
+fn process_function_names(function_names: &str) -> Result<Vec<String>> {
+    let processed_names: Vec<String> = function_names
+        .split(',')
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+
+    if processed_names.is_empty() {
+        Err(anyhow!(
+            "No valid function names found in: '{}' - check for empty or whitespace-only names",
+            function_names
+        ))
+    } else {
+        debug!(
+            "Processed {} function name(s): {:?}",
+            processed_names.len(),
+            processed_names
+        );
+        Ok(processed_names)
+    }
 }
 
 async fn update_code(
@@ -99,6 +164,21 @@ async fn update_code(
     Ok(())
 }
 
+/// Main function to process S3 events and update Lambda functions.
+///
+/// This function:
+/// 1. Extracts the AWS region from event records
+/// 2. Creates AWS SDK clients for S3 and Lambda
+/// 3. For each S3 record, determines function names and updates Lambda functions concurrently
+///
+/// # Arguments
+/// * `event` - S3 event containing records of uploaded objects
+///
+/// # Returns
+/// * `Result<()>` - Success if all Lambda functions are updated successfully
+///
+/// # Errors
+/// * Returns error if region extraction fails, AWS operations fail, or function name processing fails
 pub async fn update(event: S3Event) -> Result<()> {
     debug!("Event: {event:?}");
 
@@ -110,7 +190,7 @@ pub async fn update(event: S3Event) -> Result<()> {
     let s3_client = aws_sdk_s3::Client::new(&aws_config);
     let lambda_client = aws_sdk_lambda::Client::new(&aws_config);
 
-    let mut update_code_futures = Vec::with_capacity(event.records.len());
+    let mut update_tasks = Vec::new();
 
     for record in event.records {
         debug!("Record: {record:?}");
@@ -131,15 +211,21 @@ pub async fn update(event: S3Event) -> Result<()> {
 
         let function_names = get_function_names_from_md(&s3_client, bucket, key).await;
         let function_names = get_function_names(function_names, key)?;
+        let processed_names = process_function_names(&function_names)?;
 
-        for function_name in function_names.split(',') {
-            update_code_futures.push(tokio::spawn(update_code(
-                lambda_client.clone(),
-                function_name.to_string(),
-                bucket.clone(),
-                key.clone(),
-            )));
+        for function_name in processed_names {
+            update_tasks.push((function_name, bucket.clone(), key.clone()));
         }
+    }
+
+    let mut update_code_futures = Vec::with_capacity(update_tasks.len());
+    for (function_name, bucket, key) in update_tasks {
+        update_code_futures.push(tokio::spawn(update_code(
+            lambda_client.clone(),
+            function_name,
+            bucket,
+            key,
+        )));
     }
 
     debug!("{} function(s) to update", update_code_futures.len());
@@ -311,5 +397,42 @@ mod test {
             get_function_names_from_head_object_output(output, "bucket", "key");
 
         assert!(fn_names_from_output.is_none());
+    }
+
+    #[test]
+    fn test_process_function_names_single() -> Result<()> {
+        let processed = process_function_names("my-function")?;
+        assert_eq!(vec!["my-function"], processed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_function_names_multiple() -> Result<()> {
+        let processed = process_function_names("func1,func2,func3")?;
+        assert_eq!(vec!["func1", "func2", "func3"], processed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_function_names_with_whitespace() -> Result<()> {
+        let processed = process_function_names(" func1 , func2 , func3 ")?;
+        assert_eq!(vec!["func1", "func2", "func3"], processed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_function_names_empty_names() {
+        let result = process_function_names(",, ,");
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("No valid function names found"));
+        }
+    }
+
+    #[test]
+    fn test_process_function_names_mixed() -> Result<()> {
+        let processed = process_function_names("func1,,func2, ,func3")?;
+        assert_eq!(vec!["func1", "func2", "func3"], processed);
+        Ok(())
     }
 }
