@@ -43,14 +43,6 @@ The core update flow (`src/lib.rs:102-149`):
 - `cargo check` - Check for compilation errors without building
 - `cargo clippy -- -D warnings` - Run Rust linter for code quality checks
 
-### Making Changes
-
-After making any changes, run the build/test commands above and make sure they pass, correcting any errors.
-
-When fixing test failures, you MUST fix the test rather than remove tests. When in doubt, ask.
-
-Before committing code, run `pre-commit run` to verify that no pre-commit hooks will fail.
-
 ## Deployment
 
 ### Terraform Setup
