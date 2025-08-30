@@ -24,6 +24,7 @@ jobs:
 
   deploy-us-east-1:
     needs: download-package
+    uses: ./.github/workflows/deploy-lambda.yml
     with:
       aws-region: us-east-1
     secrets:
