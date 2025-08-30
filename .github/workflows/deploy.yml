@@ -11,22 +11,12 @@ on:
       - main
 
 jobs:
-  check-workflow-success:
-    runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
-    outputs:
-      success: ${{ steps.check.outputs.success }}
-    steps:
-      - id: check
-        run: echo "success=true" >> $GITHUB_OUTPUT
-
   download-package:
-    needs: check-workflow-success
-    if: needs.check-workflow-success.outputs.success == 'true'
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download Package Artifact
-        uses: dawidd6/action-download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           workflow: build-test.yml
           name: package
