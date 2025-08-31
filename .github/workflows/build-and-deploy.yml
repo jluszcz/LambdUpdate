@@ -1,39 +1,64 @@
-name: Deploy
+name: Build and Deploy
 
 on:
-  workflow_run:
-    workflows: ["Build and Test"]
-
-    types:
-      - completed
-
+  push:
     branches:
       - main
 
-jobs:
-  check-workflow-success:
-    runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
-    outputs:
-      success: ${{ steps.check.outputs.success }}
-    steps:
-      - id: check
-        run: echo "success=true" >> $GITHUB_OUTPUT
+    paths:
+      - '.github/workflows/**'
+      - 'Cargo**'
+      - 'src/**/*.rs'
 
-  download-package:
-    needs: check-workflow-success
-    if: needs.check-workflow-success.outputs.success == 'true'
-    runs-on: ubuntu-latest
+jobs:
+  build-and-package:
+    runs-on: ubuntu-24.04-arm
+
+    env:
+      BUILD_TARGET: aarch64-unknown-linux-musl
+      PROJECT: lambdupdate
+
     steps:
-      - name: Download Package Artifact
-        uses: dawidd6/action-download-artifact@v3
+      - uses: actions/checkout@v4
+
+      - name: Update and Configure Rust
+        run: |
+          sudo apt-get install -y musl-tools
+          rustup target add ${{ env.BUILD_TARGET }}
+          rustup update
+          rustup component add clippy
+
+      - name: Dump Toolchain Info
+        run: |
+          cargo --version --verbose
+          rustc --version
+          cargo clippy --version
+
+      - name: Build
+        run: cargo build --target ${{ env.BUILD_TARGET }}
+
+      - name: Test
+        run: cargo test --target ${{ env.BUILD_TARGET }}
+
+      - name: Lint
+        run: cargo clippy --target ${{ env.BUILD_TARGET }} -- -D warnings
+
+      - name: Package
+        run: |
+          cargo build --release --target ${{ env.BUILD_TARGET }}
+          cp target/${{ env.BUILD_TARGET }}/release/lambda bootstrap
+          zip -j ${{ env.PROJECT }}.zip bootstrap
+
+      - name: Upload Package
+        uses: actions/upload-artifact@v4
         with:
-          workflow: build-test.yml
           name: package
-          path: .
+          path: ${{ env.PROJECT }}.zip
+          retention-days: 1
 
   deploy-us-east-1:
-    needs: download-package
+    needs: build-and-package
+
     uses: ./.github/workflows/deploy-lambda.yml
     with:
       aws-region: us-east-1
@@ -42,7 +67,8 @@ jobs:
       bucket-name: ${{ secrets.AWS_US_EAST_1_BUCKET }}
 
   deploy-us-east-2:
-    needs: download-package
+    needs: build-and-package
+
     uses: ./.github/workflows/deploy-lambda.yml
     with:
       aws-region: us-east-2
