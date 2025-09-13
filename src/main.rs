@@ -1,13 +1,13 @@
 use anyhow::Result;
 use aws_lambda_events::s3::{S3Bucket, S3Entity, S3Event, S3EventRecord, S3Object};
 use clap::{Arg, ArgAction, Command};
-use jluszcz_rust_utils::set_up_logger;
+use jluszcz_rust_utils::{Verbosity, set_up_logger};
 use lambdupdate::{APP_NAME, update};
 use log::debug;
 
 #[derive(Debug)]
 struct Args {
-    verbose: u8,
+    verbosity: Verbosity,
     region: String,
     bucket: String,
     key: String,
@@ -18,9 +18,8 @@ fn parse_args() -> Args {
         .version("0.1")
         .author("Jacob Luszcz")
         .arg(
-            Arg::new("verbose")
+            Arg::new("verbosity")
                 .short('v')
-                .long("verbose")
                 .action(ArgAction::Count)
                 .help("Verbose mode (-v for debug, -vv for trace logging)."),
         )
@@ -47,7 +46,7 @@ fn parse_args() -> Args {
         )
         .get_matches();
 
-    let verbose = matches.get_count("verbose");
+    let verbosity = matches.get_count("verbosity").into();
 
     let region = matches
         .get_one::<String>("region")
@@ -65,7 +64,7 @@ fn parse_args() -> Args {
         .expect("key argument is required");
 
     Args {
-        verbose,
+        verbosity,
         region,
         bucket,
         key,
@@ -97,7 +96,7 @@ impl From<Args> for S3Event {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = parse_args();
-    set_up_logger(APP_NAME, module_path!(), args.verbose.into())?;
+    set_up_logger(APP_NAME, module_path!(), args.verbosity)?;
     debug!("Args: {args:?}");
 
     update(args.into()).await?;
