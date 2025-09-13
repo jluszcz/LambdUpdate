@@ -47,7 +47,7 @@ fn parse_args() -> Args {
         )
         .get_matches();
 
-    let verbose = matches.get_count("verbose") as u8;
+    let verbose = matches.get_count("verbose");
 
     let region = matches
         .get_one::<String>("region")
