@@ -7,7 +7,7 @@ use log::debug;
 
 #[derive(Debug)]
 struct Args {
-    verbose: bool,
+    verbose: u8,
     region: String,
     bucket: String,
     key: String,
@@ -21,8 +21,8 @@ fn parse_args() -> Args {
             Arg::new("verbose")
                 .short('v')
                 .long("verbose")
-                .action(ArgAction::SetTrue)
-                .help("Verbose mode. Outputs DEBUG and higher log messages."),
+                .action(ArgAction::Count)
+                .help("Verbose mode (-v for debug, -vv for trace logging)."),
         )
         .arg(
             Arg::new("region")
@@ -47,7 +47,7 @@ fn parse_args() -> Args {
         )
         .get_matches();
 
-    let verbose = matches.get_flag("verbose");
+    let verbose = matches.get_count("verbose");
 
     let region = matches
         .get_one::<String>("region")
@@ -97,7 +97,7 @@ impl From<Args> for S3Event {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = parse_args();
-    set_up_logger(APP_NAME, module_path!(), args.verbose)?;
+    set_up_logger(APP_NAME, module_path!(), args.verbose.into())?;
     debug!("Args: {args:?}");
 
     update(args.into()).await?;
