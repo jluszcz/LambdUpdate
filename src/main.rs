@@ -1,8 +1,8 @@
 use anyhow::Result;
-use aws_lambda_events::s3::{S3Bucket, S3Entity, S3Event, S3EventRecord, S3Object};
+use aws_lambda_events::s3::S3Event;
 use clap::{Arg, ArgAction, Command};
 use jluszcz_rust_utils::{Verbosity, set_up_logger};
-use lambdupdate::{APP_NAME, update};
+use lambdupdate::{APP_NAME, create_s3_event_record, update};
 use log::debug;
 
 #[derive(Debug)]
@@ -73,23 +73,11 @@ fn parse_args() -> Args {
 
 impl From<Args> for S3Event {
     fn from(args: Args) -> Self {
-        S3Event {
-            records: vec![S3EventRecord {
-                aws_region: Some(args.region),
-                s3: S3Entity {
-                    bucket: S3Bucket {
-                        name: Some(args.bucket),
-                        ..Default::default()
-                    },
-                    object: S3Object {
-                        key: Some(args.key),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                ..Default::default()
-            }],
-        }
+        let record = create_s3_event_record(&args.region, &args.bucket, &args.key);
+        let json = serde_json::json!({
+            "Records": [record]
+        });
+        serde_json::from_value(json).expect("Failed to construct S3Event from JSON")
     }
 }
 
