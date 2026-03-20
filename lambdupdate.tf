@@ -7,18 +7,16 @@ terraform {
 }
 
 # Sourced from environment variables named TF_VAR_${VAR_NAME}
-variable "aws_acct_id" {}
-
 variable "aws_region" {}
 
-variable "code_bucket" {}
+data "aws_caller_identity" "current" {}
 
 provider "aws" {
   region = var.aws_region
 }
 
 data "aws_s3_bucket" "code_bucket" {
-  bucket = var.code_bucket
+  bucket = format("code-%s-%s-an", data.aws_caller_identity.current.account_id, var.aws_region)
 }
 
 resource "aws_cloudwatch_log_group" "lambdupdate" {
@@ -44,7 +42,7 @@ resource "aws_iam_role" "lambdupdate" {
 data "aws_iam_policy_document" "cw_logs" {
   statement {
     actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:Describe*"]
-    resources = ["arn:aws:logs:${var.aws_region}:${var.aws_acct_id}:*"]
+    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"]
   }
 }
 

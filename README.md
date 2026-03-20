@@ -13,7 +13,6 @@ runs on `arm64` (`aarch64-unknown-linux-musl`) using the `provided.al2023` runti
 ``` bash
 export TF_VAR_aws_region="us-east-1"
 export TF_VAR_aws_acct_id="123412341234"
-export TF_VAR_code_bucket="my-code-bucket"
 ```
 
 - Build and package the Lambda binary
@@ -27,9 +26,11 @@ zip lambdupdate.zip bootstrap
 - Run Terraform apply: `terraform apply`
 
 - Upload updated code to your S3 code bucket.
-    - Include `function.names` with a comma-separated list of one or more function names in your code object's metadata, and
+    - Include `function.names` with a comma-separated list of one or more function names in your code object's metadata,
+      and
       LambdUpdate will update each of those functions. This is useful if you have multiple functions that share code.
-    - If you do not include `function.names` object metadata, LambdUpdate will take the function name from the object's key,
+    - If you do not include `function.names` object metadata, LambdUpdate will take the function name from the object's
+      key,
       stripping the `.zip` extension.
 
 ``` bash
