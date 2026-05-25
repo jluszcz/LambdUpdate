@@ -12,7 +12,6 @@ runs on `arm64` (`aarch64-unknown-linux-musl`) using the `provided.al2023` runti
 
 ``` bash
 export TF_VAR_aws_region="us-east-1"
-export TF_VAR_aws_acct_id="123412341234"
 ```
 
 - Build and package the Lambda binary

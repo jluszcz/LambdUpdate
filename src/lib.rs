@@ -3,20 +3,25 @@
 //! This library processes S3 events triggered when ZIP files are uploaded to a code bucket,
 //! extracts function names from object metadata or keys, and updates the corresponding Lambda functions.
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use aws_config::ConfigLoader;
 use aws_lambda_events::s3::{S3Event, S3EventRecord};
 use aws_sdk_lambda::config::Region;
-use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+use aws_sdk_lambda::operation::update_function_code::UpdateFunctionCodeError;
 use chrono::Utc;
 use futures::future::try_join_all;
-use log::{debug, info};
-use std::collections::HashSet;
-use std::fmt::Display;
+use log::{debug, info, warn};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub const APP_NAME: &str = "lambdupdate";
 
 const FUNCTION_NAME_MD_KEY: &str = "function.names";
+
+const MAX_UPDATE_ATTEMPTS: u32 = 3;
+const INITIAL_BACKOFF_MS: u64 = 500;
 
 /// Creates an S3EventRecord for testing or CLI usage.
 ///
@@ -97,32 +102,38 @@ fn get_region(records: &[S3EventRecord]) -> Result<String> {
     }
 }
 
+/// Fetches function names from the object's S3 metadata.
+///
+/// Returns `Ok(Some(_))` if the object's metadata contains the function-names key,
+/// `Ok(None)` if the head succeeds but the key is absent, and `Err(_)` if HeadObject
+/// itself fails — callers must treat that as a real error rather than silently
+/// falling back, since it usually indicates misconfigured IAM or a missing object.
 async fn get_function_names_from_md(
     s3_client: &aws_sdk_s3::Client,
     bucket: &str,
     key: &str,
-) -> Option<String> {
+) -> Result<Option<String>> {
     debug!("Head Object: {bucket}:{key}");
-    let head_object_output = s3_client.head_object().bucket(bucket).key(key).send().await;
-    get_function_names_from_head_object_output(head_object_output, bucket, key)
+    let head_object_output = s3_client
+        .head_object()
+        .bucket(bucket)
+        .key(key)
+        .send()
+        .await
+        .with_context(|| format!("HeadObject failed for {bucket}:{key}"))?;
+
+    info!("Head Object Succeeded: {bucket}:{key}");
+    debug!("Object Metadata: {:?}", head_object_output.metadata);
+
+    Ok(extract_function_names_from_metadata(
+        head_object_output.metadata,
+    ))
 }
 
-fn get_function_names_from_head_object_output<E>(
-    head_object_output: Result<HeadObjectOutput, E>,
-    bucket: &str,
-    key: &str,
+fn extract_function_names_from_metadata(
+    metadata: Option<HashMap<String, String>>,
 ) -> Option<String> {
-    if let Ok(head_object_output) = head_object_output {
-        info!("Head Object Succeeded: {bucket}:{key}");
-
-        let object_md = head_object_output.metadata;
-        debug!("Object Metadata: {object_md:?}");
-
-        object_md.and_then(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
-    } else {
-        info!("Head Object Failed for {bucket}:{key} - will use object key for function name");
-        None
-    }
+    metadata.and_then(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
 }
 
 /// Determines function names from object metadata or object key.
@@ -139,14 +150,11 @@ fn get_function_names_from_head_object_output<E>(
 ///
 /// # Errors
 /// * Returns error if no metadata is provided and the key doesn't end with ".zip"
-fn get_function_names<S>(function_names_from_md: Option<S>, key: &str) -> Result<String>
-where
-    S: Into<String> + Display,
-{
-    let function_names = match function_names_from_md {
+fn get_function_names(function_names_from_md: Option<String>, key: &str) -> Result<String> {
+    match function_names_from_md {
         Some(function_names) => {
             debug!("Function names from object metadata: {function_names}");
-            function_names.into()
+            Ok(function_names)
         }
         None => {
             let function_name = key
@@ -154,11 +162,9 @@ where
                 .ok_or_else(|| anyhow!("'.zip' not found in object key: {key}"))?;
 
             debug!("Function name from object key: {function_name}");
-            function_name.to_string()
+            Ok(function_name.to_string())
         }
-    };
-
-    Ok(function_names)
+    }
 }
 
 /// Processes a comma-separated list of function names, trimming whitespace and filtering empty names.
@@ -193,25 +199,69 @@ fn process_function_names(function_names: &str) -> Result<Vec<String>> {
     }
 }
 
+fn collect_update_tasks(
+    function_names_md: Option<String>,
+    bucket: Arc<str>,
+    key: Arc<str>,
+    update_tasks: &mut HashSet<(String, Arc<str>, Arc<str>)>,
+) -> Result<()> {
+    let function_names = get_function_names(function_names_md, &key)?;
+    let processed_names = process_function_names(&function_names)?;
+
+    for function_name in processed_names {
+        update_tasks.insert((function_name, Arc::clone(&bucket), Arc::clone(&key)));
+    }
+
+    Ok(())
+}
+
+fn is_conflict(err: Option<&UpdateFunctionCodeError>) -> bool {
+    matches!(
+        err,
+        Some(UpdateFunctionCodeError::ResourceConflictException(_))
+    )
+}
+
 async fn update_code(
     lambda_client: aws_sdk_lambda::Client,
     function_name: String,
-    bucket: String,
-    key: String,
+    bucket: Arc<str>,
+    key: Arc<str>,
 ) -> Result<()> {
     debug!("Update Function Code: {function_name} <-- {bucket}:{key}");
 
-    lambda_client
-        .update_function_code()
-        .function_name(&function_name)
-        .s3_bucket(&bucket)
-        .s3_key(&key)
-        .send()
-        .await?;
+    let mut attempt = 0u32;
+    let final_err = loop {
+        attempt += 1;
 
-    info!("Update Function Code Succeeded: {function_name} <-- {bucket}:{key}");
+        let result = lambda_client
+            .update_function_code()
+            .function_name(&function_name)
+            .s3_bucket(bucket.as_ref())
+            .s3_key(key.as_ref())
+            .send()
+            .await;
 
-    Ok(())
+        match result {
+            Ok(_) => {
+                info!("Update Function Code Succeeded: {function_name} <-- {bucket}:{key}");
+                return Ok(());
+            }
+            Err(err) => {
+                if !is_conflict(err.as_service_error()) || attempt >= MAX_UPDATE_ATTEMPTS {
+                    break err;
+                }
+
+                let backoff_ms = INITIAL_BACKOFF_MS * (1u64 << (attempt - 1));
+                warn!(
+                    "ResourceConflictException updating {function_name} (attempt {attempt}/{MAX_UPDATE_ATTEMPTS}); retrying in {backoff_ms}ms"
+                );
+                sleep(Duration::from_millis(backoff_ms)).await;
+            }
+        }
+    };
+
+    Err(final_err).with_context(|| format!("UpdateFunctionCode failed for {function_name}"))
 }
 
 /// Main function to process S3 events and update Lambda functions.
@@ -240,46 +290,42 @@ pub async fn update(event: S3Event) -> Result<()> {
     let s3_client = aws_sdk_s3::Client::new(&aws_config);
     let lambda_client = aws_sdk_lambda::Client::new(&aws_config);
 
-    let mut update_tasks = Vec::new();
+    let mut update_tasks: HashSet<(String, Arc<str>, Arc<str>)> = HashSet::new();
 
     for record in event.records {
         debug!("Record: {record:?}");
 
-        let bucket = record
-            .s3
-            .bucket
-            .name
-            .as_ref()
-            .ok_or_else(|| anyhow!("Bucket not found in {record:?}"))?;
+        let bucket: Arc<str> = Arc::from(
+            record
+                .s3
+                .bucket
+                .name
+                .as_deref()
+                .ok_or_else(|| anyhow!("Bucket not found in {record:?}"))?,
+        );
 
-        let key = record
-            .s3
-            .object
-            .key
-            .as_ref()
-            .ok_or_else(|| anyhow!("Key not found in {record:?}"))?;
+        let key: Arc<str> = Arc::from(
+            record
+                .s3
+                .object
+                .key
+                .as_deref()
+                .ok_or_else(|| anyhow!("Key not found in {record:?}"))?,
+        );
 
-        let function_names = get_function_names_from_md(&s3_client, bucket, key).await;
-        let function_names = get_function_names(function_names, key)?;
-        let processed_names = process_function_names(&function_names)?;
-
-        for function_name in processed_names {
-            update_tasks.push((function_name, bucket.clone(), key.clone()));
-        }
+        let function_names_md = get_function_names_from_md(&s3_client, &bucket, &key).await?;
+        collect_update_tasks(function_names_md, bucket, key, &mut update_tasks)?;
     }
 
-    let mut update_code_futures = Vec::with_capacity(update_tasks.len());
-    for (function_name, bucket, key) in update_tasks {
-        update_code_futures.push(tokio::spawn(update_code(
-            lambda_client.clone(),
-            function_name,
-            bucket,
-            key,
-        )));
-    }
+    debug!("{} function(s) to update", update_tasks.len());
 
-    debug!("{} function(s) to update", update_code_futures.len());
-    try_join_all(update_code_futures).await?;
+    let update_futures = update_tasks
+        .into_iter()
+        .map(|(function_name, bucket, key)| {
+            update_code(lambda_client.clone(), function_name, bucket, key)
+        });
+
+    try_join_all(update_futures).await?;
 
     Ok(())
 }
@@ -287,7 +333,6 @@ pub async fn update(event: S3Event) -> Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use anyhow::Error;
     use aws_lambda_events::s3::S3EventRecord;
     use std::collections::HashMap;
 
@@ -359,8 +404,8 @@ mod test {
     }
 
     #[test]
-    fn test_get_function_names_from_md() -> Result<()> {
-        let function_names = get_function_names(Some("foo,bar"), "bar")?;
+    fn test_get_function_names_when_md_provided() -> Result<()> {
+        let function_names = get_function_names(Some("foo,bar".to_string()), "bar")?;
 
         assert_eq!("foo,bar", function_names);
 
@@ -369,7 +414,7 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_key() -> Result<()> {
-        let function_names = get_function_names(None::<&str>, "bar.zip")?;
+        let function_names = get_function_names(None, "bar.zip")?;
 
         assert_eq!("bar", function_names);
 
@@ -378,7 +423,7 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_unzipped_key() {
-        let res = get_function_names(None::<&str>, "bar");
+        let res = get_function_names(None, "bar");
 
         assert!(res.is_err());
         if let Err(e) = res {
@@ -387,52 +432,27 @@ mod test {
     }
 
     #[test]
-    fn test_get_function_names_from_head_object_output() {
-        let fn_names = "foo,bar";
+    fn test_extract_function_names_present() {
+        let mut md = HashMap::new();
+        md.insert(FUNCTION_NAME_MD_KEY.to_string(), "foo,bar".to_string());
 
-        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder()
-            .metadata(FUNCTION_NAME_MD_KEY, fn_names)
-            .build());
-
-        let fn_names_from_output =
-            get_function_names_from_head_object_output(output, "bucket", "key");
-
-        assert!(fn_names_from_output.is_some());
-        if let Some(fn_names_from_output) = fn_names_from_output {
-            assert_eq!(fn_names, fn_names_from_output);
-        }
+        assert_eq!(
+            Some("foo,bar".to_string()),
+            extract_function_names_from_metadata(Some(md))
+        );
     }
 
     #[test]
-    fn test_get_function_names_from_head_object_output_err() {
-        let output: Result<HeadObjectOutput, Error> = Err(anyhow!("Error!"));
-
-        let fn_names_from_output =
-            get_function_names_from_head_object_output(output, "bucket", "key");
-
-        assert!(fn_names_from_output.is_none());
+    fn test_extract_function_names_no_metadata() {
+        assert_eq!(None, extract_function_names_from_metadata(None));
     }
 
     #[test]
-    fn test_get_function_names_from_head_object_output_no_metadata() {
-        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder().build());
-
-        let fn_names_from_output =
-            get_function_names_from_head_object_output(output, "bucket", "key");
-
-        assert!(fn_names_from_output.is_none());
-    }
-
-    #[test]
-    fn test_get_function_names_from_head_object_output_no_function_names() {
-        let output: Result<HeadObjectOutput, Error> = Ok(HeadObjectOutput::builder()
-            .set_metadata(Some(HashMap::new()))
-            .build());
-
-        let fn_names_from_output =
-            get_function_names_from_head_object_output(output, "bucket", "key");
-
-        assert!(fn_names_from_output.is_none());
+    fn test_extract_function_names_key_absent() {
+        assert_eq!(
+            None,
+            extract_function_names_from_metadata(Some(HashMap::new()))
+        );
     }
 
     #[test]
@@ -469,6 +489,101 @@ mod test {
     fn test_process_function_names_mixed() -> Result<()> {
         let processed = process_function_names("func1,,func2, ,func3")?;
         assert_eq!(vec!["func1", "func2", "func3"], processed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_is_conflict_true() {
+        let err = UpdateFunctionCodeError::ResourceConflictException(
+            aws_sdk_lambda::types::error::ResourceConflictException::builder()
+                .message("update in progress")
+                .build(),
+        );
+        assert!(is_conflict(Some(&err)));
+    }
+
+    #[test]
+    fn test_is_conflict_false_other_variant() {
+        let err = UpdateFunctionCodeError::TooManyRequestsException(
+            aws_sdk_lambda::types::error::TooManyRequestsException::builder()
+                .message("throttled")
+                .build(),
+        );
+        assert!(!is_conflict(Some(&err)));
+    }
+
+    #[test]
+    fn test_is_conflict_false_none() {
+        assert!(!is_conflict(None));
+    }
+
+    #[test]
+    fn test_collect_update_tasks_dedups_identical_records() -> Result<()> {
+        let bucket: Arc<str> = Arc::from("b");
+        let key: Arc<str> = Arc::from("func.zip");
+        let mut tasks = HashSet::new();
+
+        collect_update_tasks(None, Arc::clone(&bucket), Arc::clone(&key), &mut tasks)?;
+        collect_update_tasks(None, bucket, key, &mut tasks)?;
+
+        assert_eq!(1, tasks.len());
+        Ok(())
+    }
+
+    #[test]
+    fn test_collect_update_tasks_keeps_distinct_functions() -> Result<()> {
+        let bucket: Arc<str> = Arc::from("b");
+        let key: Arc<str> = Arc::from("shared.zip");
+        let mut tasks = HashSet::new();
+
+        collect_update_tasks(
+            Some("a,b,c".to_string()),
+            Arc::clone(&bucket),
+            Arc::clone(&key),
+            &mut tasks,
+        )?;
+
+        assert_eq!(3, tasks.len());
+        Ok(())
+    }
+
+    #[test]
+    fn test_collect_update_tasks_dedups_across_metadata_and_key() -> Result<()> {
+        let bucket: Arc<str> = Arc::from("b");
+        let key: Arc<str> = Arc::from("foo.zip");
+        let mut tasks = HashSet::new();
+
+        collect_update_tasks(
+            Some("foo".to_string()),
+            Arc::clone(&bucket),
+            Arc::clone(&key),
+            &mut tasks,
+        )?;
+        collect_update_tasks(None, bucket, key, &mut tasks)?;
+
+        assert_eq!(1, tasks.len());
+        Ok(())
+    }
+
+    #[test]
+    fn test_collect_update_tasks_distinct_keys_not_deduped() -> Result<()> {
+        let bucket: Arc<str> = Arc::from("b");
+        let mut tasks = HashSet::new();
+
+        collect_update_tasks(
+            Some("foo".to_string()),
+            Arc::clone(&bucket),
+            Arc::from("v1.zip"),
+            &mut tasks,
+        )?;
+        collect_update_tasks(
+            Some("foo".to_string()),
+            bucket,
+            Arc::from("v2.zip"),
+            &mut tasks,
+        )?;
+
+        assert_eq!(2, tasks.len());
         Ok(())
     }
 }
