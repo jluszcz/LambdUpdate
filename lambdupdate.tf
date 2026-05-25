@@ -138,10 +138,43 @@ resource "aws_lambda_function" "lambdupdate" {
   architectures = ["arm64"]
   runtime       = "provided.al2023"
   handler       = "ignored"
-  publish       = "false"
+  publish       = false
   description   = "Update Lambdas from code in ${data.aws_s3_bucket.code_bucket.bucket}"
   timeout       = 5
   memory_size   = 128
+}
+
+resource "aws_sqs_queue" "dlq" {
+  name                      = "lambdupdate-dlq"
+  message_retention_seconds = 1209600
+}
+
+data "aws_iam_policy_document" "dlq" {
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.dlq.arn]
+  }
+}
+
+resource "aws_iam_policy" "dlq" {
+  name   = "lambdupdate.dlq.${var.aws_region}"
+  policy = data.aws_iam_policy_document.dlq.json
+}
+
+resource "aws_iam_role_policy_attachment" "dlq" {
+  role       = aws_iam_role.lambdupdate.name
+  policy_arn = aws_iam_policy.dlq.arn
+}
+
+resource "aws_lambda_function_event_invoke_config" "lambdupdate" {
+  function_name          = aws_lambda_function.lambdupdate.function_name
+  maximum_retry_attempts = 0
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.dlq.arn
+    }
+  }
 }
 
 data "aws_iam_openid_connect_provider" "github" {
