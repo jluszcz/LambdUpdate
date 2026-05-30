@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 
 export TF_VAR_aws_region="us-east-2"
-terraform workspace select "us-east-2"
+terraform workspace select lambdupdate_us-east-2
