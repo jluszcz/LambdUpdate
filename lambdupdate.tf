@@ -56,28 +56,6 @@ resource "aws_iam_role_policy_attachment" "cw_logs" {
   policy_arn = aws_iam_policy.cw_logs.arn
 }
 
-data "aws_iam_policy_document" "cw_metrics" {
-  statement {
-    actions   = ["cloudwatch:PutMetricData"]
-    resources = ["*"]
-    condition {
-      test     = "StringEquals"
-      variable = "cloudwatch:namespace"
-      values   = ["lambdupdate"]
-    }
-  }
-}
-
-resource "aws_iam_policy" "cw_metrics" {
-  name   = "lambdupdate.cw.${var.aws_region}"
-  policy = data.aws_iam_policy_document.cw_metrics.json
-}
-
-resource "aws_iam_role_policy_attachment" "cw_metrics" {
-  role       = aws_iam_role.lambdupdate.name
-  policy_arn = aws_iam_policy.cw_metrics.arn
-}
-
 data "aws_iam_policy_document" "lambda" {
   statement {
     actions   = ["lambda:UpdateFunctionCode"]
