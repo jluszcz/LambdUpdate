@@ -8,7 +8,6 @@ use aws_config::ConfigLoader;
 use aws_lambda_events::s3::{S3Event, S3EventRecord};
 use aws_sdk_lambda::config::Region;
 use aws_sdk_lambda::operation::update_function_code::UpdateFunctionCodeError;
-use chrono::Utc;
 use futures::future::try_join_all;
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
@@ -27,26 +26,17 @@ const INITIAL_BACKOFF_MS: u64 = 500;
 ///
 /// This function constructs a minimal S3EventRecord with all required fields
 /// using JSON deserialization, since S3Event structs are non-exhaustive in
-/// aws_lambda_events 1.0+. The event time is set to the current UTC time.
-///
-/// # Arguments
-/// * `region` - AWS region (e.g., "us-east-1")
-/// * `bucket` - S3 bucket name
-/// * `key` - S3 object key
-///
-/// # Returns
-/// * `S3EventRecord` - A valid S3EventRecord with the specified parameters
+/// aws_lambda_events 1.0+. The event time is a fixed epoch timestamp; nothing
+/// downstream reads it.
 ///
 /// # Panics
 /// * Panics if JSON deserialization fails (should not happen with valid inputs)
 pub fn create_s3_event_record(region: &str, bucket: &str, key: &str) -> S3EventRecord {
-    let event_time = Utc::now().to_rfc3339();
-
     let json = serde_json::json!({
         "eventVersion": "2.0",
         "eventSource": "aws:s3",
         "awsRegion": region,
-        "eventTime": event_time,
+        "eventTime": "1970-01-01T00:00:00.000Z",
         "eventName": "ObjectCreated:Put",
         "userIdentity": {
             "principalId": "EXAMPLE"
@@ -72,19 +62,8 @@ pub fn create_s3_event_record(region: &str, bucket: &str, key: &str) -> S3EventR
     serde_json::from_value(json).expect("Failed to construct S3EventRecord from JSON")
 }
 
-/// Extracts the AWS region from S3 event records.
-///
-/// All records must be from the same region. Returns an error if no region is found
-/// or if records contain multiple different regions.
-///
-/// # Arguments
-/// * `records` - Slice of S3 event records to extract region from
-///
-/// # Returns
-/// * `Result<String>` - The AWS region if exactly one unique region is found
-///
-/// # Errors
-/// * Returns error if records contain 0 or multiple different regions
+/// Extracts the AWS region from S3 event records. All records must be from the
+/// same region; errors if zero or multiple distinct regions are found.
 fn get_region(records: &[S3EventRecord]) -> Result<String> {
     let regions = records
         .iter()
@@ -136,20 +115,8 @@ fn extract_function_names_from_metadata(
     metadata.and_then(|m| m.get(FUNCTION_NAME_MD_KEY).cloned())
 }
 
-/// Determines function names from object metadata or object key.
-///
-/// First tries to get function names from object metadata using the key "function.names".
-/// If not found, extracts the function name from the object key by stripping the ".zip" suffix.
-///
-/// # Arguments
-/// * `function_names_from_md` - Optional function names from object metadata
-/// * `key` - S3 object key to extract function name from if metadata is not available
-///
-/// # Returns
-/// * `Result<String>` - Comma-separated function names or single function name
-///
-/// # Errors
-/// * Returns error if no metadata is provided and the key doesn't end with ".zip"
+/// Determines function names from object metadata if present, falling back to the
+/// object key with its ".zip" suffix stripped (an error if the suffix is absent).
 fn get_function_names(function_names_from_md: Option<String>, key: &str) -> Result<String> {
     match function_names_from_md {
         Some(function_names) => {
@@ -167,16 +134,8 @@ fn get_function_names(function_names_from_md: Option<String>, key: &str) -> Resu
     }
 }
 
-/// Processes a comma-separated list of function names, trimming whitespace and filtering empty names.
-///
-/// # Arguments
-/// * `function_names` - Comma-separated string of function names
-///
-/// # Returns
-/// * `Result<Vec<String>>` - Vector of trimmed, non-empty function names
-///
-/// # Errors
-/// * Returns error if no valid function names are found after processing
+/// Splits a comma-separated list of function names, trimming whitespace and dropping
+/// empty entries; errors if nothing valid remains.
 fn process_function_names(function_names: &str) -> Result<Vec<String>> {
     let processed_names: Vec<String> = function_names
         .split(',')
@@ -333,14 +292,9 @@ pub async fn update(event: S3Event) -> Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use aws_lambda_events::s3::S3EventRecord;
     use std::collections::HashMap;
 
     const TEST_EVENT: &str = r#"{"Records":[{"eventVersion":"2.0","eventSource":"aws:s3","awsRegion":"us-west-2","eventTime":"1970-01-01T00:00:00.000Z","eventName":"ObjectCreated:Put","userIdentity":{"principalId":"EXAMPLE"},"requestParameters":{"sourceIPAddress":"127.0.0.1"},"responseElements":{"x-amz-request-id":"EXAMPLE123456789","x-amz-id-2":"EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"},"s3":{"s3SchemaVersion":"1.0","configurationId":"testConfigRule","bucket":{"name":"my-s3-bucket","ownerIdentity":{"principalId":"EXAMPLE"},"arn":"arn:aws:s3:::example-bucket"},"object":{"key":"HappyFace.jpg","size":1024,"eTag":"0123456789abcdef0123456789abcdef","sequencer":"0A1B2C3D4E5F678901"}}}]}"#;
-
-    fn test_record(region: &str, bucket: &str, key: &str) -> S3EventRecord {
-        create_s3_event_record(region, bucket, key)
-    }
 
     #[test]
     fn test_deserialize() -> Result<()> {
@@ -367,11 +321,11 @@ mod test {
 
     #[test]
     fn test_get_region() -> Result<()> {
-        let mut records = vec![test_record("us-east-1", "foo", "bar")];
+        let mut records = vec![create_s3_event_record("us-east-1", "foo", "bar")];
 
         assert_eq!("us-east-1", get_region(&records)?);
 
-        records.push(test_record("us-east-1", "baz", "quux"));
+        records.push(create_s3_event_record("us-east-1", "baz", "quux"));
 
         assert_eq!("us-east-1", get_region(&records)?);
 
@@ -382,25 +336,19 @@ mod test {
     fn test_get_region_none() {
         let records = Vec::new();
 
-        let res = get_region(&records);
-        assert!(res.is_err());
-        if let Err(e) = res {
-            assert!(e.to_string().contains("Invalid region count"));
-        }
+        let e = get_region(&records).unwrap_err();
+        assert!(e.to_string().contains("Invalid region count"));
     }
 
     #[test]
     fn test_get_region_multiple() {
         let records = vec![
-            test_record("us-east-1", "foo", "bar"),
-            test_record("us-east-2", "baz", "quux"),
+            create_s3_event_record("us-east-1", "foo", "bar"),
+            create_s3_event_record("us-east-2", "baz", "quux"),
         ];
 
-        let res = get_region(&records);
-        assert!(res.is_err());
-        if let Err(e) = res {
-            assert!(e.to_string().contains("Invalid region count"));
-        }
+        let e = get_region(&records).unwrap_err();
+        assert!(e.to_string().contains("Invalid region count"));
     }
 
     #[test]
@@ -423,12 +371,8 @@ mod test {
 
     #[test]
     fn test_get_function_names_from_unzipped_key() {
-        let res = get_function_names(None, "bar");
-
-        assert!(res.is_err());
-        if let Err(e) = res {
-            assert!(e.to_string().contains("'.zip' not found"));
-        }
+        let e = get_function_names(None, "bar").unwrap_err();
+        assert!(e.to_string().contains("'.zip' not found"));
     }
 
     #[test]
@@ -478,11 +422,8 @@ mod test {
 
     #[test]
     fn test_process_function_names_empty_names() {
-        let result = process_function_names(",, ,");
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("No valid function names found"));
-        }
+        let e = process_function_names(",, ,").unwrap_err();
+        assert!(e.to_string().contains("No valid function names found"));
     }
 
     #[test]

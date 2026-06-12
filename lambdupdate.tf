@@ -59,7 +59,7 @@ resource "aws_iam_role_policy_attachment" "cw_logs" {
 data "aws_iam_policy_document" "lambda" {
   statement {
     actions   = ["lambda:UpdateFunctionCode"]
-    resources = ["*"]
+    resources = ["arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:*"]
   }
 }
 
