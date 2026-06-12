@@ -1,7 +1,7 @@
+use aws_lambda_events::s3::S3Event;
 use jluszcz_rust_utils::lambda;
 use lambda_runtime::{LambdaEvent, service_fn};
 use lambdupdate::{APP_NAME, update};
-use serde_json::{Value, json};
 
 #[tokio::main]
 async fn main() -> Result<(), lambda_runtime::Error> {
@@ -12,8 +12,7 @@ async fn main() -> Result<(), lambda_runtime::Error> {
     Ok(())
 }
 
-async fn function(event: LambdaEvent<Value>) -> Result<Value, lambda_runtime::Error> {
-    update(serde_json::from_value(event.payload)?).await?;
-
-    Ok(json!({}))
+async fn function(event: LambdaEvent<S3Event>) -> Result<(), lambda_runtime::Error> {
+    update(event.payload).await?;
+    Ok(())
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+# Source this file, don't execute it: . env-us_east_2
 
 export TF_VAR_aws_region="us-east-2"
 terraform workspace select lambdupdate_us-east-2

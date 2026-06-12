@@ -26,12 +26,13 @@ either from:
 1. Object metadata key `function.names` (comma-separated list for shared code)
 2. Object key name (strips `.zip` extension)
 
-The core update flow (`src/lib.rs:102-149`):
+The core update flow (the `update()` function in `src/lib.rs`):
 
 1. Extract AWS region from S3 event records
 2. Create AWS SDK clients for S3 and Lambda
-3. For each S3 record, determine target function names
-4. Concurrently update all target Lambda functions using `aws_sdk_lambda::Client::update_function_code()`
+3. For each S3 record, determine target function names and collect deduplicated update tasks
+4. Concurrently update all target Lambda functions using `aws_sdk_lambda::Client::update_function_code()`, retrying
+   with exponential backoff on `ResourceConflictException` (up to 3 attempts)
 
 ## Development Commands
 
@@ -47,13 +48,14 @@ The core update flow (`src/lib.rs:102-149`):
 
 ### Terraform Setup
 
-Set required environment variables:
+Terraform state uses per-region workspaces named `lambdupdate_<region>`. Source the appropriate env script to set
+`TF_VAR_aws_region` (the only required variable) and select the workspace:
 
 ```bash
-export TF_VAR_aws_region="us-east-1"
-export TF_VAR_aws_acct_id="123412341234"
-export TF_VAR_code_bucket="my-code-bucket"
+. env-us_east_1  # or env-us_east_2
 ```
+
+The AWS account ID and code bucket name are derived in `lambdupdate.tf` from the caller identity and region.
 
 Deploy infrastructure:
 
@@ -90,5 +92,5 @@ Comprehensive test suite in `src/lib.rs` covers:
 Run specific test:
 
 ```bash
-cargo test test_get_function_names_from_md
+cargo test test_get_function_names_from_key
 ```
