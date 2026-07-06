@@ -38,7 +38,7 @@ impl From<Args> for S3Event {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    set_up_logger(APP_NAME, module_path!(), args.verbosity.into())?;
+    set_up_logger(APP_NAME, module_path!(), args.verbosity)?;
     debug!("Args: {args:?}");
 
     update(args.into()).await?;
