@@ -1,6 +1,6 @@
 # LambdUpdate
 
-[![Status Badge](https://github.com/jluszcz/LambdUpdate/actions/workflows/build-and-deploy.yml/badge.svg)](https://github.com/jluszcz/LambdUpdate/actions/workflows/build-and-deploy.yml)
+[![Status Badge](https://github.com/jluszcz/LambdUpdate/actions/workflows/ci.yml/badge.svg)](https://github.com/jluszcz/LambdUpdate/actions/workflows/ci.yml)
 
 LambdUpdate is a [Terraform](https://www.terraform.io) configuration and Rust Lambda which updates AWS
 [Lambda](https://aws.amazon.com/lambda/) functions when S3 code is uploaded to a code bucket. The Lambda
