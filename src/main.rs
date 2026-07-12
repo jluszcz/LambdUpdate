@@ -6,7 +6,7 @@ use lambdupdate::{APP_NAME, create_s3_event_record, update};
 use log::debug;
 
 #[derive(Debug, Parser)]
-#[command(name = "LambdUpdate", version, author)]
+#[command(name = "LambdUpdate", version, author, infer_long_args = true)]
 struct Args {
     /// Verbose mode (-v for debug, -vv for trace logging).
     #[arg(short, action = ArgAction::Count)]
