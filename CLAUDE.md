@@ -40,9 +40,10 @@ The core update flow (the `update()` function in `src/lib.rs`):
 
 - `cargo build` - Build the project
 - `cargo fmt` - Format the source code
+- `cargo fmt --check` - Check formatting (same as CI)
 - `cargo test` - Run all tests
 - `cargo check` - Check for compilation errors without building
-- `cargo clippy -- -D warnings` - Run Rust linter for code quality checks
+- `cargo clippy --all-targets -- -D warnings` - Run Rust linter for code quality checks (same as CI)
 
 ## Deployment
 
