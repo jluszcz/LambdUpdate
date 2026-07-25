@@ -40,10 +40,20 @@ The core update flow (the `update()` function in `src/lib.rs`):
 
 - `cargo build` - Build the project
 - `cargo fmt` - Format the source code
-- `cargo fmt --check` - Check formatting (same as CI)
+- `cargo fmt --check` - Check formatting
 - `cargo test` - Run all tests
 - `cargo check` - Check for compilation errors without building
-- `cargo clippy --all-targets -- -D warnings` - Run Rust linter for code quality checks (same as CI)
+- `cargo clippy --all-targets -- -D warnings` - Run Rust linter for code quality checks
+- `pre-commit run --all-files` - Run the configured hooks (includes `cargo fmt --check`)
+
+### CI
+
+`.github/workflows/ci.yml` is a thin caller of `jluszcz/github-utils/.github/workflows/rust-ci.yml@v1` — the steps
+live in that shared workflow, not in this repo. It runs build, test, `cargo fmt --check`, and
+`cargo clippy --all-targets -- -D warnings` on `ubuntu-24.04-arm` against the `aarch64-unknown-linux-musl` target,
+so the plain commands above are not an exact match. To reproduce a CI failure, append
+`--target aarch64-unknown-linux-musl`. On a push to `main`, CI additionally packages the Lambda and deploys it to
+both `us-east-1` and `us-east-2` via the shared `lambda-package` and `deploy-lambda` workflows.
 
 ## Deployment
 
