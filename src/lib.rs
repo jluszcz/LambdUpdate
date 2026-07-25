@@ -8,7 +8,7 @@ use aws_config::ConfigLoader;
 use aws_lambda_events::s3::{S3Event, S3EventRecord};
 use aws_sdk_lambda::config::Region;
 use aws_sdk_lambda::operation::update_function_code::UpdateFunctionCodeError;
-use futures::future::try_join_all;
+use futures::future::join_all;
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -223,6 +223,36 @@ async fn update_code(
     Err(final_err).with_context(|| format!("UpdateFunctionCode failed for {function_name}"))
 }
 
+/// Folds per-function update results into a single outcome.
+///
+/// Every function is reported, not just the first to fail: a single permanently
+/// bad name (a renamed or deleted function) must not obscure which of its
+/// siblings also need attention. Failures are sorted by function name because
+/// the update tasks come out of a `HashSet` in arbitrary order.
+fn aggregate_update_results(results: Vec<(String, Result<()>)>) -> Result<()> {
+    let mut failures: Vec<_> = results
+        .into_iter()
+        .filter_map(|(function_name, result)| result.err().map(|err| (function_name, err)))
+        .collect();
+
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    failures.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    let detail = failures
+        .iter()
+        .map(|(function_name, err)| format!("{function_name} ({err:#})"))
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    Err(anyhow!(
+        "Failed to update {} function(s): {detail}",
+        failures.len()
+    ))
+}
+
 /// Main function to process S3 events and update Lambda functions.
 ///
 /// This function:
@@ -278,15 +308,20 @@ pub async fn update(event: S3Event) -> Result<()> {
 
     debug!("{} function(s) to update", update_tasks.len());
 
+    // join_all, not try_join_all: the latter drops the remaining futures on the
+    // first error, cancelling in-flight updates for functions that share this
+    // artifact. Every target is attempted, then the failures are aggregated.
     let update_futures = update_tasks
         .into_iter()
         .map(|(function_name, bucket, key)| {
-            update_code(lambda_client.clone(), function_name, bucket, key)
+            let lambda_client = lambda_client.clone();
+            async move {
+                let result = update_code(lambda_client, function_name.clone(), bucket, key).await;
+                (function_name, result)
+            }
         });
 
-    try_join_all(update_futures).await?;
-
-    Ok(())
+    aggregate_update_results(join_all(update_futures).await)
 }
 
 #[cfg(test)]
@@ -456,6 +491,60 @@ mod test {
     #[test]
     fn test_is_conflict_false_none() {
         assert!(!is_conflict(None));
+    }
+
+    #[test]
+    fn test_aggregate_update_results_all_succeeded() {
+        let results = vec![("a".to_string(), Ok(())), ("b".to_string(), Ok(()))];
+        assert!(aggregate_update_results(results).is_ok());
+    }
+
+    #[test]
+    fn test_aggregate_update_results_no_functions() {
+        assert!(aggregate_update_results(Vec::new()).is_ok());
+    }
+
+    #[test]
+    fn test_aggregate_update_results_names_the_failed_function() {
+        let results = vec![
+            ("good".to_string(), Ok(())),
+            (
+                "stale".to_string(),
+                Err(anyhow!("ResourceNotFoundException")),
+            ),
+        ];
+
+        let err = aggregate_update_results(results).expect_err("expected an error");
+        let message = format!("{err:#}");
+
+        assert!(message.contains("stale"), "{message}");
+        assert!(message.contains("ResourceNotFoundException"), "{message}");
+    }
+
+    #[test]
+    fn test_aggregate_update_results_reports_every_failure() {
+        // The point of the fix: one bad name must not hide the others, so every
+        // failure has to survive into the aggregated error.
+        let results = vec![
+            ("zeta".to_string(), Err(anyhow!("boom"))),
+            ("alpha".to_string(), Err(anyhow!("bang"))),
+            ("ok".to_string(), Ok(())),
+        ];
+
+        let err = aggregate_update_results(results).expect_err("expected an error");
+        let message = format!("{err:#}");
+
+        assert!(message.contains("alpha"), "{message}");
+        assert!(message.contains("zeta"), "{message}");
+        assert!(
+            message.contains('2'),
+            "should count both failures: {message}"
+        );
+        // Update tasks come out of a HashSet, so the order must not be arbitrary.
+        assert!(
+            message.find("alpha") < message.find("zeta"),
+            "failures should be sorted by name: {message}"
+        );
     }
 
     #[test]

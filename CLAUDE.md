@@ -33,6 +33,9 @@ The core update flow (the `update()` function in `src/lib.rs`):
 3. For each S3 record, determine target function names and collect deduplicated update tasks
 4. Concurrently update all target Lambda functions using `aws_sdk_lambda::Client::update_function_code()`, retrying
    with exponential backoff on `ResourceConflictException` (up to 3 attempts)
+5. Every target is attempted even when one fails — the results are folded by `aggregate_update_results` into a single
+   error naming each failed function. Use `join_all` here, never `try_join_all`: the latter drops the remaining
+   futures on the first error, which cancels in-flight updates for functions sharing the same artifact.
 
 ## Development Commands
 
@@ -98,6 +101,9 @@ Comprehensive test suite in `src/lib.rs` covers:
 - S3 event deserialization
 - Region extraction from event records
 - Function name resolution from metadata/object keys
+- Retry/conflict classification (`test_is_conflict_*`)
+- Update-task deduplication (`test_collect_update_tasks_*`)
+- Failure aggregation across functions (`test_aggregate_update_results_*`)
 - Error handling for invalid inputs
 
 Run specific test:
