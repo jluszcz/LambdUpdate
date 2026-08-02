@@ -90,24 +90,6 @@ resource "aws_iam_role_policy_attachment" "s3" {
   policy_arn = aws_iam_policy.s3.arn
 }
 
-resource "aws_s3_bucket_notification" "notification" {
-  bucket = data.aws_s3_bucket.code_bucket.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.lambdupdate.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_suffix       = ".zip"
-  }
-}
-
-resource "aws_lambda_permission" "allow_bucket" {
-  statement_id  = "lambdupdate-allow-exec-from-s3"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambdupdate.arn
-  principal     = "s3.amazonaws.com"
-  source_arn    = data.aws_s3_bucket.code_bucket.arn
-}
-
 resource "aws_lambda_function" "lambdupdate" {
   function_name = "lambdupdate"
   s3_bucket     = data.aws_s3_bucket.code_bucket.bucket
