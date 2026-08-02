@@ -1,5 +1,17 @@
 # LambdUpdate
 
+> **Retired 2026-08-02.** Lambda code deploys no longer go through this
+> service. `deploy-lambda.yml` in [jluszcz/github-utils][gh-utils] uploads the
+> artifact to the code bucket and calls `UpdateFunctionCode` itself. The
+> rationale is in that repo, under
+> `docs/superpowers/specs/2026-08-02-lambdupdate-retirement-design.md`.
+>
+> The one capability without a replacement is the `function.names` object
+> metadata key, which pointed a single artifact at several functions. No
+> project used it.
+
+[gh-utils]: https://github.com/jluszcz/github-utils
+
 [![Status Badge](https://github.com/jluszcz/LambdUpdate/actions/workflows/ci.yml/badge.svg)](https://github.com/jluszcz/LambdUpdate/actions/workflows/ci.yml)
 
 LambdUpdate is a [Terraform](https://www.terraform.io) configuration and Rust Lambda which updates AWS
